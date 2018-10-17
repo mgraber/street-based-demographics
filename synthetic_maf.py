@@ -7,12 +7,12 @@ from random import randint
 
 
 edges = gpd.read_file(
-    "denver_tiger/tl_2017_08031_edges/tl_2017_08031_edges.shp")
+    "boulder_tiger/tl_2018_08013_edges/tl_2018_08013_edges.shp")
 faces = gpd.read_file(
-    "denver_tiger/tl_2017_08031_faces/tl_2017_08031_faces.shp")
-faces['BLKID'] = faces['STATEFP10'] + faces['COUNTYFP10'] + faces['TRACTCE10'] + faces['BLOCKCE10']
+    "boulder_tiger/tl_2018_08013_faces/tl_2018_08013_faces.shp")
+faces.loc[:,'BLKID'] = faces['STATEFP10'] + faces['COUNTYFP10'] + faces['TRACTCE10'] + faces['BLOCKCE10']
 
-streets = edges.loc[(edges['ROADFLG'] == 'Y') & (edges['FULLNAME'] != '')]
+streets = edges.loc[(edges['FULLNAME'].notnull()) & (edges['ROADFLG']=='Y')]
 streets.reset_index()
 print(streets.head())
 
@@ -28,11 +28,11 @@ for i in range(streets.shape[0]):
     if right_block.shape[0] > 0:
         right_block_id = right_block['BLKID'].iloc[0]
 
-    for j in range(randint(0, 10)):
+    for j in range(randint(1, 10)):
         d.append({'street_name': street_name, 'block_id': left_block_id})
-    for k in range(randint(0, 10)):
+    for k in range(randint(1, 10)):
         d.append({'street_name': street_name, 'block_id': right_block_id})
 
 synth_maf = pd.DataFrame(d)
 
-synth_maf.to_csv('den_synth_maf.csv')
+synth_maf.to_csv('bldr_synth_maf.csv')

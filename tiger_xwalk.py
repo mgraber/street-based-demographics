@@ -3,38 +3,13 @@ import pandas as pd
 import numpy as np
 import copy
 import geopandas as gpd
+import difflib
 
 
 """
 This script creates a crosswalk between MAFIDs and a list of all possible TLIDs
 and official names for the streets surrounding an address's enumeration block.
 
-Joins:
-1) Table 1: MAF, with primary key MAFID
-2) Table 2: Extract of MAF, with primary key MAFID. This will also contain the
-    BLOCKID and street name associated with each MAFID.
-3) Table 3: Blocks table (available as a TIGER product) has primary key BLOCKID.
-4) Table 4: Faces table (available as a TIGER product) has a primary key TFID.
-    Each TFID also has associated BLOCKID.
-5) Table 5: Need to create a table with primary key TFID-TLID-SIDE. This requires
-    creating a column of all TFIDs from the TFIDL and TFIDR fields of the edges
-    file. When doing so, save the associated TLID, and create an indicator column
-    for left or right.
-6) Table 6: Edges table (available as a TIGER product) has primary key TLID. There
-    are also TFIDL and TFIDR used in step 5. Also important is the FULLNAME column,
-    and the indicator for roads (either the feature class column or the indicator).
-7) Table 7: Need to create a table with primary key FULLNAME-BLOCKID. This requires
-    taking the FULLNAME from all of the rows in table 5, then looking up which
-    block the associated with each TFID using the faces table.
-8) Table 8: Using Table 2 and Table 7, make another table where each row has
-    a street name, a BLOCKID, and a name source -- either MAF or TIGER.
-
-Function:
-Given a MAFID, use associated BLOCKID and NAME, find closest TIGER name that matches
-the block ID, then use BLOCKID with the faces table to get a list of associated TFIDs,
-then use this list and the TIGER name with table 5 to get a list of associated TLIDs.
-
-This list can then be used to make geometric searching much faster.
 """
 
 def load_tiger(edge_path, face_path):
@@ -47,11 +22,12 @@ def load_tiger(edge_path, face_path):
 
     # Import TIGER face data
     faces = gpd.read_file(face_path)
-    faces['BLKID'] = faces['STATEFP10'] + faces['COUNTYFP10'] + faces['TRACTCE10'] + faces['BLOCKCE10']
+    faces.loc[:,'BLKID'] = faces['STATEFP10'] + faces['COUNTYFP10'] + faces['TRACTCE10'] + faces['BLOCKCE10']
     faces = faces[['TFID','BLKID']]
     faces.set_index('TFID')
 
     return edges, faces
+
 
 def create_edge_face(edges, faces, roads_only=True):
     """
@@ -94,6 +70,7 @@ def create_edge_face(edges, faces, roads_only=True):
 
     return edge_face
 
+
 def create_names_blocks(edge_face, faces):
     """
     Creates a new table with linkage between block IDs and TIGER road names
@@ -122,87 +99,10 @@ def create_names_blocks(edge_face, faces):
     return name_blocks
 
 
-def maf_names_blocks():
+def match_names(street_name, block_id, names_blocks):
     """
-    Creates a new table with linkage between block IDs and MAF official road names
-
-    Need to understand the RDC input data better to write this.
-
-    Parameters
-    ----------
-    ???
-
-    Returns
-    -------
-    maf_name_blocks: pd DataFrame
-            Contains a column with MAF names, and one with the neighboring block
-            id.
-    """
-    pass
-
-
-def names_table(names_blocks, maf_names_blocks):
-    """
-    Creates a table with a new street name identifier, and links this to both
-    the MAF and TIGER street names, as well as neighboring blocks.
-
-    Uses text similarity to find which street name of all names associated with
-    each block ID is closest to the MAF name.
-
-    Parameters
-    ----------
-    names_blocks: pd DataFrame
-            Output of create_names_blocks()
-            Contains rows for each name-block combination. Names are in the form
-            of the TIGER files
-    maf_names_blocks: pd DataFrame
-            Output of maf_names_blocks()
-            Contains rows for each name-block combination. Names are in the form
-            of the MAF
-
-    Returns
-    -------
-    names: pd DataFrame
-            Contains one row for each street name-block id combo.
-            Columns: STREETID(index), TIGER_NAME, MAF_NAME, BLKID
-    """
-    pass
-
-
-def fake_names_table(names_blocks):
-    """
-    Creates a table with a new street name identifier, and links this to both
-    the MAF and TIGER street names, as well as neighboring blocks.
-
-    This is a fake version of the real function to work with the synthetic MAF
-    data derived from the TIGER edges file.
-
-
-    Parameters
-    ----------
-    names_blocks: pd DataFrame
-            Synthetic names-blocks connection from the TIGER edges file
-
-    Returns
-    -------
-    names: pd DataFrame
-            Contains one row for each street name-block id combo.
-            Columns: STREETID(index), TIGER_NAME, MAF_NAME, BLKID
-    """
-
-    names = names_blocks.rename(columns={'block_id':'BLKID', 'street_name':'TIGER_NAME'})
-    names.loc[:,'MAF_NAME'] = names['TIGER_NAME']
-    names.loc[:,'STREETID'] = names.index
-
-    return names
-
-
-
-
-def find_possible_tlid(maf_street_name, block_id, names, face, edge_face):
-    """
-    Uses relationship tables to return a list of TLIDs that could be associated
-    with the address of interest, given the MAF street name and block ID.
+    Given a MAF street name and block id, finds the closest TIGER street name match
+    among the street names associated with the same block.
 
     Parameters
     ----------
@@ -210,9 +110,98 @@ def find_possible_tlid(maf_street_name, block_id, names, face, edge_face):
             Full name of the street of interest, in MAF form
     block_id: str
             15 digit block identifier
+    name_blocks: pd DataFrame
+            Contains a column with TIGER names, and one with the neighboring block
+            id
+
+    Returns
+    -------
+    closest_match: str
+            The TIGER street name most closely matching the MAF street name,
+            among those associated with the same block
+    """
+    print('\n\nMatching: ', street_name, ' ', block_id)
+    names_subset = names_blocks.loc[names_blocks['BLKID'] == block_id]
+    #print(names_subset)
+    possible_names = names_subset['FULLNAME'].dropna().tolist()
+    print('Possible TIGER names for this block: ', possible_names)
+    closest_match = difflib.get_close_matches(street_name, possible_names, n=1)
+    if len(closest_match)>0:
+        print(closest_match[0])
+        return closest_match[0]
+    else:
+        print('**** No Match Found ****')
+        return None
+
+
+def make_names_table(maf, names_blocks):
+    """
+    Using all name-block combinations in the MAF and TIGER, makes a table matching
+    MAF street name with TIGER street name. This does so by calling match_names()
+
+    Parameters
+    ----------
+    maf: pd DataFrame
+            Extract of MAF (or synthetic) which has street names ('street_name')
+            and block id ('block_id') fields
+    name_blocks: pd DataFrame
+            Contains a column with TIGER names, and one with the neighboring block
+            id.
+
+    Returns
+    -------
     names: pd DataFrame
-            Contains one row for each street name-block id combo.
-            Columns: STREETID(index), TIGER_NAME, MAF_NAME, BLKID
+            Contains a column with TIGER names, one with the neighboring block
+            id, and one with MAF name
+    """
+
+    names = maf[['street_name', 'block_id']]
+    names = names.rename(columns={'street_name':'MAF_NAME','block_id':'BLKID'})
+    names = names.drop_duplicates(keep='first')
+    names = names.reset_index(drop=True)
+    names.loc[:,'FULLNAME'] =  names.apply(lambda row: match_names(row['MAF_NAME'], row['BLKID'], names_blocks), axis=1)
+    return names
+
+def name_tlid_table(names, faces, edge_face):
+    """
+    Applies find_possible_tlid() to a names table contining both MAF and TIGER street names,
+    by joining with face-edge information
+
+    Parameters
+    ----------
+    names: pd DataFrame
+            Contains a column with TIGER names, one with the neighboring block
+            id, and one with MAF name
+    face: gpd DataFrame
+            Face data from TIGER, with concatinated block id
+    edge_face: pd DataFrame
+            Contains a column for TLID, one with the TIGER name,
+            one for neighboring TFID, and one which describes which
+            side the face is on (0 = left, 1 = right)
+    Returns
+    -------
+    tlid_results: pd DataFrame
+            Contains a column with TIGER names, one with the neighboring block
+            id, one with MAF name, and one with a list of possible TLIDs
+    """
+    names.loc[:,'TLIDs'] = names.apply(lambda row: find_possible_tlid(row['FULLNAME'],
+                                                                        row['BLKID'],
+                                                                        faces,
+                                                                        edge_face), axis=1)
+    return names
+
+
+def find_possible_tlid(tiger_name, block_id, face, edge_face):
+    """
+    Uses relationship tables to return a list of TLIDs that could be associated
+    with the address of interest, given the MAF street name and block ID.
+
+    Parameters
+    ----------
+    tiger_name: str
+            Full name of the street of interest, in TIGER form
+    block_id: str
+            15 digit block identifier
     face: gpd DataFrame
             Face data from TIGER, with concatinated block id
     edge_face: pd DataFrame
@@ -224,10 +213,7 @@ def find_possible_tlid(maf_street_name, block_id, names, face, edge_face):
     -------
     possible_tlid: a list of possible TLIDs for given household
     """
-
-    tiger_name_df = names.loc[names['MAF_NAME'] == maf_street_name]
-    tiger_name = tiger_name_df.reset_index().loc[0,'TIGER_NAME']
-
+    print('Finding TLIDs for ', tiger_name, ', block ', block_id)
     possible_faces_df = face.loc[face['BLKID'] == block_id]
     possible_faces = possible_faces_df['TFID'].tolist()
 
@@ -235,8 +221,8 @@ def find_possible_tlid(maf_street_name, block_id, names, face, edge_face):
                                 & (edge_face['FULLNAME'] == tiger_name)]
 
     possible_tlid = possible_edge_faces['TLID'].tolist()
+    print(possible_tlid)
     return possible_tlid
-
 
 
 if __name__ == "__main__":
@@ -251,34 +237,39 @@ if __name__ == "__main__":
     den_edge_face = create_edge_face(den_edges, den_faces)
     bldr_edge_face = create_edge_face(bldr_edges, bldr_faces)
 
-    #print(den_edge_face.head())
-    #print(den_edge_face.tail())
-
     # Create names-blocks relationship table using TIGER names
     den_tiger_names = create_names_blocks(den_edge_face, den_faces)
     bldr_tiger_names = create_names_blocks(bldr_edge_face, bldr_faces)
-    #print(bldr_tiger_names.head())
-    #print()
 
-    # Create names-blocks relationship table using MAF names (this is the cheat way for synthetic MAF)
-    den_synth_maf = pd.read_csv('den_synth_maf.csv')
+    # Load synthetic MAF data
+    den_synth_maf = pd.read_csv('den_synth_maf.csv',  converters={'block_id': lambda x: str(x)})
     den_synth_maf = den_synth_maf[['block_id','street_name']]
 
-    bldr_synth_maf = pd.read_csv('bldr_synth_maf.csv')
+    bldr_synth_maf = pd.read_csv('bldr_synth_maf.csv',  converters={'block_id': lambda x: str(x)})
     bldr_synth_maf = bldr_synth_maf[['block_id','street_name']]
 
-    den_maf_names = den_synth_maf.drop_duplicates()
-    bldr_maf_names = bldr_synth_maf.drop_duplicates()
+    # Match names to create MAFname-block-TIGERname tables (most time consuming step)
+
+    # print('\n\n\n Creating names tables \n\n\n')
+    # den_names = make_names_table(den_synth_maf, den_tiger_names)
+    # print(den_names.head())
+    # den_names.to_csv('den_names.csv')
+    den_names = pd.read_csv('den_names.csv', converters={'BLKID': lambda x: str(x)})
+
+    # bldr_names = make_names_table(bldr_synth_maf, bldr_tiger_names)
+    # print(bldr_names.head())
+    # bldr_names.to_csv('bldr_names.csv')
+    bldr_names = pd.read_csv('bldr_names.csv', converters={'BLKID': lambda x: str(x)})
 
 
-    # Link MAF names and TIGER names by looking at text similarity (fake version for now)
-    den_names = fake_names_table(den_maf_names)
-    bldr_names = fake_names_table(bldr_maf_names)
+    ############## Everything above this point can be done once if outputs are saved as CSVs #############
 
-    # Molly's house example
-    print("TLID list for Molly's house:")
-    print(find_possible_tlid('Grandview Ave', '080130123002008', bldr_names, bldr_faces, bldr_edge_face))
+    print('\n\n\n\n\n Finding TLIDs \n\n\n')
 
-    # Civic center park example\
-    print("TLID list for Civic Center Park:")
-    print(find_possible_tlid('W 14th Ave','080310020001016', den_names, den_faces, den_edge_face))
+    den_xwalk = name_tlid_table(den_names, den_faces, den_edge_face)
+    print(den_xwalk.head())
+    den_xwalk.to_csv('den_xwalk.csv')
+
+    bldr_xwalk = name_tlid_table(bldr_names, bldr_faces, bldr_edge_face)
+    print(bldr_xwalk.head())
+    bldr_xwalk.to_csv('bldr_xwalk.csv')

@@ -4,6 +4,8 @@ import numpy as np
 import copy
 import geopandas as gpd
 import difflib
+from shapely import wkt
+
 
 
 """
@@ -28,6 +30,37 @@ def load_tiger(edge_path, face_path):
 
     return edges, faces
 
+def load_tiger_csv(edge_path, face_path):
+    """
+    Loads csv-converted TIGER data from paths, keeps relevant attributes,
+    and sets index for face data.
+    """
+
+    crs = {'init': 'epsg:4269'}
+
+
+    # Import TIGER edge data
+    edges_pd = pd.read_csv(edge_path, converters={'TFIDL': lambda x: x.split('.')[0],
+                                                 'TFIDR': lambda x: x.split('.')[0]})
+    edges_pd['geometry'] = edges_pd['geometry'].apply(wkt.loads)
+    edges = gpd.GeoDataFrame(edges_pd, crs=crs, geometry='geometry')
+    print(edges[['TFIDL','TFIDR']].head())
+
+
+    # Import TIGER face data
+    faces_pd = pd.read_csv(face_path, converters={'STATEFP10': lambda x: str(x),
+                                                    'COUNTYFP10': lambda x: str(x),
+                                                    'TRACTCE10': lambda x: str(x),
+                                                    'BLOCKCE10': lambda x: str(x),
+                                                    'TFID': lambda x: str(x)})
+    faces_pd['geometry'] = faces_pd['geometry'].apply(wkt.loads)
+    faces = gpd.GeoDataFrame(faces_pd, crs=crs, geometry='geometry')
+    faces.loc[:,'BLKID'] = faces['STATEFP10'] + faces['COUNTYFP10'] + faces['TRACTCE10'] + faces['BLOCKCE10']
+    faces = faces[['TFID','BLKID']]
+    faces.set_index('TFID')
+    print(faces.head())
+
+    return edges, faces
 
 def create_edge_face(edges, faces, roads_only=True):
     """
@@ -99,7 +132,7 @@ def create_names_blocks(edge_face, faces):
     return name_blocks
 
 
-def match_names(street_name, block_id, names_blocks):
+def match_names(street_name, block_id, names_blocks, counter = 0):
     """
     Given a MAF street name and block id, finds the closest TIGER street name match
     among the street names associated with the same block.
@@ -127,9 +160,9 @@ def match_names(street_name, block_id, names_blocks):
         #print(closest_match[0])
         return closest_match[0]
     else:
-        print('**** No Match Found ****')
-        print(street_name, block_id)
-        print(possible_names)
+        #print('**** No Match Found ****')
+        #print(street_name, block_id)
+        #print(possible_names)
         return None
 
 
@@ -158,6 +191,9 @@ def make_names_table(maf, names_blocks):
     names = names.drop_duplicates(keep='first')
     names = names.reset_index(drop=True)
     names.loc[:,'FULLNAME'] =  names.apply(lambda row: match_names(row['MAF_NAME'], row['BLKID'], names_blocks), axis=1)
+    name_errors = names.loc[pd.isna(names['FULLNAME'])]
+    print(name_errors.shape[0]/names.shape[0])
+    name_errors.to_csv('name_errors.csv')
     return names
 
 def name_tlid_table(names, faces, edge_face):
@@ -182,6 +218,7 @@ def name_tlid_table(names, faces, edge_face):
             Contains a column with TIGER names, one with the neighboring block
             id, one with MAF name, and one with a list of possible TLIDs
     """
+
     names.loc[:,'TLIDs'] = names.apply(lambda row: find_possible_tlid(row['FULLNAME'],
                                                                         row['BLKID'],
                                                                         faces,
@@ -222,13 +259,52 @@ def find_possible_tlid(tiger_name, block_id, face, edge_face):
     #print(possible_tlid)
     return possible_tlid
 
+def driver(county_code = '08031'):
+    # Load TIGER data
+    county_edges, county_faces = load_tiger_csv(county_code + "_edges.csv",
+                                            county_code + "_faces.csv")
+
+    # Create edge-face relationship table
+    county_edge_face = create_edge_face(county_edges, county_faces)
+    print('\n\n\n', 'Edge-Face table: \n', county_edge_face.head(), '\n\n\n')
+
+    # Create names-blocks relationship table using TIGER names
+    county_tiger_names = create_names_blocks(county_edge_face, county_faces)
+    print('\n\n\n', 'TIGER Names-Blocks table: \n', county_tiger_names.head(), '\n\n\n')
+
+    # Load MAF DATA
+    county_maf = load_mafx_sas(county_code + "_MAFX.sas7bdat")
+
+    '''
+    # Load Denver address data (block IDs were imputed using a spatial join with face data)
+    den_maf = pd.read_csv('den_addresses.csv', converters={'BLKID': lambda x: str(x)})
+    #den_maf.loc[:,'BLKID'] = '0' + den_maf['BLKID']
+    print('\n\n\n', 'Imported Address table: \n', den_maf.head(), '\n\n\n')
+    '''
+
+    # Match names to create MAFname-block-TIGERname tables (most time consuming step)
+    print('\n\n\n Creating names tables \n\n\n')
+
+    if os.path.exists(county_code + '_address_names.csv'):
+        county_add_names = pd.read_csv(county_code + '_address_names.csv')
+    else:
+        county_add_names = make_names_table(county_maf, county_tiger_names)
+        print(county_add_names.head())
+        county_add_names.to_csv(county_code + '_address_names.csv')
+
+    print('\n\n\n\n\n Finding TLIDs \n\n\n')
+
+    county_add_xwalk = name_tlid_table(county_add_names, county_faces, county_edge_face)
+    print(county_add_xwalk.head())
+    county_add_xwalk.to_csv(county_code + 'address_maf_xwalk.csv')
+
+
 if __name__ == "__main__":
 
+
     # Load TIGER data
-    den_edges, den_faces = load_tiger("denver_tiger/tl_2017_08031_edges/tl_2017_08031_edges.shp",
-                                            "denver_tiger/tl_2017_08031_faces/tl_2017_08031_faces.shp")
-    bldr_edges, bldr_faces = load_tiger("boulder_tiger/tl_2018_08013_edges/tl_2018_08013_edges.shp",
-                                            "boulder_tiger/tl_2018_08013_faces/tl_2018_08013_faces.shp")
+    den_edges, den_faces = load_tiger_csv("08031_edges.csv",
+                                            "08031_faces.csv")
 
     # Create edge-face relationship table
     den_edge_face = create_edge_face(den_edges, den_faces)
@@ -252,32 +328,6 @@ if __name__ == "__main__":
     print(den_add_names.head())
     den_add_names.to_csv('den_add_names.csv')
 
-    """
-    Synthetic (circular) MAF data implementation
-
-    # Load synthetic MAF data
-    den_synth_maf = pd.read_csv('den_synth_maf.csv',  converters={'block_id': lambda x: str(x)})
-    den_synth_maf = den_synth_maf[['block_id','street_name']]
-    den_synth_maf = den_synth_maf.rename(columns={'street_name':'MAF_NAME','block_id':'BLKID'})
-
-    bldr_synth_maf = pd.read_csv('bldr_synth_maf.csv',  converters={'block_id': lambda x: str(x)})
-    bldr_synth_maf = bldr_synth_maf[['block_id','street_name']]
-    bldr_synth_maf = bldr_synth_maf.rename(columns={'street_name':'MAF_NAME','block_id':'BLKID'})
-
-    # Match names to create MAFname-block-TIGERname tables (most time consuming step, uncomment to recreate)
-    # print('\n\n\n Creating names tables \n\n\n')
-
-    # den_names = make_names_table(den_synth_maf, den_tiger_names)
-    # print(den_names.head())
-    # den_names.to_csv('den_names.csv')
-    den_names = pd.read_csv('den_names.csv', converters={'BLKID': lambda x: str(x)})
-
-    # bldr_names = make_names_table(bldr_synth_maf, bldr_tiger_names)
-    # print(bldr_names.head())
-    # bldr_names.to_csv('bldr_names.csv')
-    bldr_names = pd.read_csv('bldr_names.csv', converters={'BLKID': lambda x: str(x)})
-    """
-
     ############## Everything above this point can be done once if outputs are saved as CSVs #############
 
     print('\n\n\n\n\n Finding TLIDs \n\n\n')
@@ -285,9 +335,3 @@ if __name__ == "__main__":
     den_add_xwalk = name_tlid_table(den_add_names, den_faces, den_edge_face)
     print(den_add_xwalk.head())
     den_add_xwalk.to_csv('den_add_xwalk.csv')
-
-    """
-    bldr_xwalk = name_tlid_table(bldr_names, bldr_faces, bldr_edge_face)
-    print(bldr_xwalk.head())
-    bldr_xwalk.to_csv('bldr_xwalk.csv')
-    """

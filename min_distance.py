@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-import line_profiler
-import profile
 from shapely.geometry import Point
 import time
 
@@ -17,51 +15,112 @@ Step 6) Add column of TLID to the address table
 
 def min_dist(point, edges):
     """
+    Finds the TLID closest to the point, given that the TLID is one of the options
+    found using the tiger_xwalk.py crosswalk
 
+    Parameters
+    ----------
+    edges: gpd DataFrame
+            edge data from TIGER
+    point: one row of a gpd DataFrame
+            a point representing a household, where one column is 'TLIDs'
+
+    Returns
+    -------
+    closest_tlid['TLID']: str
+            TLID of the closest street segment. If none are found, returns 'None'
     """
     if len(point['TLIDs']) == 0:
+        #print('No possible TLIDs')
         return 'None'
-    if len(point['TLIDs']) == 1:
+    if len(point['TLIDs']) == 1 or len(edges.loc[edges['TLID'].isin(point['TLIDs'])]) == 1:
+        #print('Only one option')
         return point['TLIDs'][0]
     else:
-        tlid_df = edges.loc[edges['TLID'].isin(point['TLIDs'])]..reset_index().copy(deep=True)
-        #tlid_df = tlid_df.reset_index()
+        tlid_df = edges.loc[edges['TLID'].isin(point['TLIDs'])].copy(deep=True).reset_index()
+        #print(tlid_df['TLID'].head())
         tlid_df.loc[:,'dist'] = tlid_df.apply(lambda row: point.geometry.distance(row.geometry), axis=1)
         closest_tlid = tlid_df.iloc[np.argmin(tlid_df['dist'])]
         #print('Closest TLID:', closest_tlid['TLID'])
         return closest_tlid['TLID']
 
-def simplify_roads(edge_gpd, tol=.5):
-    simple_edges = edge_gpd.simplify(tolerance=tol, preserve_topology=False)
-    return simple_edges
+def min_dist(point, edges):
+    """
+    Finds the TLID closest to the point, given that the TLID is one of the options
+    found using the tiger_xwalk.py crosswalk
 
+    Parameters
+    ----------
+    edges: gpd DataFrame
+            edge data from TIGER
+    point: one row of a gpd DataFrame
+            a point representing a household, where one column is 'TLIDs'
 
-def create_webmap(add_gpd, edge_gpd):
-    # Interactive plots with Folium
-    addresses_json = add_gpd.to_crs(epsg='4326').to_json()
-    edges_json = edge_gpd.to_crs(epsg='4326').to_json()
-    den_map = folium.Map([39.75, -104.977],
-                  zoom_start=14,
-                  tiles='cartodbpositron')
+    Returns
+    -------
+    closest_tlid['TLID']: str
+            TLID of the closest street segment. If none are found, returns 'None'
+    """
+    if len(point['TLIDs']) == 0:
+        #print('No possible TLIDs')
+        return 'None'
+    if len(point['TLIDs']) == 1 or len(edges.loc[edges['TLID'].isin(point['TLIDs'])]) == 1:
+        #print('Only one option')
+        return point['TLIDs'][0]
+    else:
+        tlid_df = edges.loc[edges['TLID'].isin(point['TLIDs'])].copy(deep=True).reset_index()
+        #print(tlid_df['TLID'].head())
+        tlid_df.loc[:,'dist'] = tlid_df.apply(lambda row: point.geometry.distance(row.geometry), axis=1)
+        closest_tlid = tlid_df.iloc[np.argmin(tlid_df['dist'])]
+        #print('Closest TLID:', closest_tlid['TLID'])
+        return closest_tlid['TLID']
 
-    points = folium.features.GeoJson(addresses_json)
-    lines = folium.features.GeoJson(edges_json)
-    den_map.add_child(points)
-    den_map.add_child(lines)
-    den_map
+def run_distance_calc(simplify = True, tol = 0, mids=False, sample=False, sample_rate=0.1):
+    """
+    Finds the TLID closest to the point, given that the TLID is one of the options
+    found using the tiger_xwalk.py crosswalk
 
-def driver(simplify = True, tol = 0):
+    Parameters
+    ----------
+    simplify: bool
+            flag to use shapely's line simplification on the roads prior to calculating
+            distances from points
+    tol: float
+            tolerance for the simplify option -- the number of units away from the true line
+            that is acceptable
+    mids: bool
+            flag to instead calculate distances from the midpoints of each line segment
+    sample: bool
+            flag to run calculation on a random sample of all household points.
+    sample_rate: float
+            the size of sample desired if sample == True. Default is 10%
+
+    Output
+    ------
+
+    A csv titled den_tlid_match.csv, which links each household in the original (or sampled)
+    input data with the closest possible TLID, after having narrowed the search area using
+    the tiger_xwalk.py crosswalk
+    """
+
     import_data_t0 = time.time()
 
-    # Open address point CSV and convert to GeoDataFrame
-    den_ad_pd = pd.read_csv("den_addresses.csv")
+    # Open address point CSV and convert to GeoDataFrame, sampling if desired
+    den_ad_pd = pd.read_csv("den_addresses_sample.csv")
+    if sample:
+        den_ad_pd = den_ad_pd.sample(frac=sample_rate, replace=False)
+        den_ad_pd.to_csv('den_addresses_sample.csv')
     geometry = [Point(xy) for xy in zip(den_ad_pd.LONGITUDE, den_ad_pd.LATITUDE)]
     den_ad_pd = den_ad_pd.drop(['LATITUDE', 'LONGITUDE'], axis=1)
     crs = {'init': 'epsg:4269'}
     addresses = gpd.GeoDataFrame(den_ad_pd, crs=crs, geometry=geometry)
 
-    # Open TIGER edges shapefile and crosswalk CSV
+
+    # Open TIGER edges shapefile and crosswalk CSV. Calculate midpoints of edges if desired.
     edges = gpd.read_file("denver_tiger/tl_2017_08031_edges/tl_2017_08031_edges.shp")
+    if mids:
+        midpoints = edges.copy()
+        midpoints.loc[:,'geometry'] = edges.centroid
     xwalk = pd.read_csv("den_xwalk.csv")
 
     # Convert TLIDs column to lists
@@ -73,43 +132,29 @@ def driver(simplify = True, tol = 0):
 
     simplify_t0 = time.time()
     if simplify == True:
+        print("Tolerance level: ", tol)
         # Simplify roads before calculating distances
-        edges = simplify_roads(edges, tol=tol)
+        edges.loc[:,'geometry'] = edges.simplify(tolerance=tol, preserve_topology=False)
+        edges.to_file(driver = 'ESRI Shapefile', filename = 'simplify_' + str(tol))
     simplify_t1 = time.time()
-
-    print("Tolerance level: ", tol)
-
-    webmap_t0 = time.time()
-    # Create webmap showing the simplified roads along with the points
-    create_webmap(addresses, edges_simple)
-    webmap_t1 = time.time()
 
     # Find closest TLID for each address using min_dist()
     geometric_t0 = time.time()
     maf_xwalk = maf_xwalk[pd.notnull(maf_xwalk['TLIDs'])]
-    maf_xwalk.loc[:,'TLID_match'] = maf_xwalk.progress_apply(lambda row: min_dist(row, edges), axis=1)
+    if mids:
+        maf_xwalk.loc[:,'TLID_match'] = maf_xwalk.apply(lambda row: min_dist(row, midpoints), axis=1)
+    else:
+        maf_xwalk.loc[:,'TLID_match'] = maf_xwalk.apply(lambda row: min_dist(row, edges), axis=1)
     maf_xwalk[['BLKID','MAF_NAME','TLID_match']].to_csv('den_tlid_match.csv')
     geometric_t1 = time.time()
 
     print("Import time: ", import_data_t1-import_data_t0)
     print("Simplify time: ", simplify_t1-simplify_t0)
     print("Geometric opporations time: ", geometric_t1-geometric_t0)
+    print("Average geometric opporations time: ", (geometric_t1-geometric_t0)/maf_xwalk.shape[0])
     print("Total time: ", import_data_t1-import_data_t0+simplify_t1-simplify_t0+geometric_t1-geometric_t0)
 
+
+
 if __name__ == "__main__":
-
-
-
-    # Initialize profiler
-    profiler = profile.Profile()
-
-    # Calibrate the profiler -- this measures CPU overhead
-    cpu_overhead = profiler.calibrate(10000)
-
-    # Remove overhead bias, run driver
-    profiler = profile.Profile(bias=cpu_overhead)
-    results = profiler.run("driver()")
-
-    # Put the results into a file and view
-    profiler.dump_stats("min_dist.prof")
-    results.print_stats()
+    run_distance_calc(simplify = False, mids=False, sample=False)

@@ -2,15 +2,11 @@ import os
 import pandas as pd
 import numpy as np
 import copy
-import geopandas as gpd
 import difflib
-from shapely import wkt
-
-
 
 """
-This script creates a crosswalk between MAFIDs and a list of all possible TLIDs
-and official names for the streets surrounding an address's enumeration block.
+This script creates a crosswalk between block-street combinations and
+a list of all possible TLIDs.
 
 """
 
@@ -35,26 +31,18 @@ def load_tiger_csv(edge_path, face_path):
     Loads csv-converted TIGER data from paths, keeps relevant attributes,
     and sets index for face data.
     """
-
-    crs = {'init': 'epsg:4269'}
-
-
     # Import TIGER edge data
-    edges_pd = pd.read_csv(edge_path, converters={'TFIDL': lambda x: x.split('.')[0],
+    edges = pd.read_csv(edge_path, converters={'TFIDL': lambda x: x.split('.')[0],
                                                  'TFIDR': lambda x: x.split('.')[0]})
-    edges_pd['geometry'] = edges_pd['geometry'].apply(wkt.loads)
-    edges = gpd.GeoDataFrame(edges_pd, crs=crs, geometry='geometry')
     print(edges[['TFIDL','TFIDR']].head())
 
 
     # Import TIGER face data
-    faces_pd = pd.read_csv(face_path, converters={'STATEFP10': lambda x: str(x),
+    faces = pd.read_csv(face_path, converters={'STATEFP10': lambda x: str(x),
                                                     'COUNTYFP10': lambda x: str(x),
                                                     'TRACTCE10': lambda x: str(x),
                                                     'BLOCKCE10': lambda x: str(x),
                                                     'TFID': lambda x: str(x)})
-    faces_pd['geometry'] = faces_pd['geometry'].apply(wkt.loads)
-    faces = gpd.GeoDataFrame(faces_pd, crs=crs, geometry='geometry')
     faces.loc[:,'BLKID'] = faces['STATEFP10'] + faces['COUNTYFP10'] + faces['TRACTCE10'] + faces['BLOCKCE10']
     faces = faces[['TFID','BLKID']]
     faces.set_index('TFID')
@@ -71,7 +59,7 @@ def create_edge_face(edges, faces, roads_only=True):
     ----------
     edge: gpd DataFrame
             edge data from TIGER
-    face: gpd DataFrame
+    face: pd DataFrame
             face data from TIGER, with concatinated block id
     roads_only: bool
             only includes roads if true, and drops the road flag column in the
@@ -116,7 +104,7 @@ def create_names_blocks(edge_face, faces):
             non-roads, then the output will contain several nan values for names,
             and a few for blocks. Some of the names will also refer to things like
             railroads.
-    face: gpd DataFrame
+    face: pd DataFrame
             Face data from TIGER, with concatinated block id
 
     Returns
@@ -157,12 +145,8 @@ def match_names(street_name, block_id, names_blocks, counter = 0):
     possible_names = names_subset['FULLNAME'].dropna().tolist()
     closest_match = difflib.get_close_matches(street_name, possible_names, cutoff=0.5, n=1)
     if len(closest_match)>0:
-        #print(closest_match[0])
         return closest_match[0]
     else:
-        #print('**** No Match Found ****')
-        #print(street_name, block_id)
-        #print(possible_names)
         return None
 
 
@@ -192,8 +176,8 @@ def make_names_table(maf, names_blocks):
     names = names.reset_index(drop=True)
     names.loc[:,'FULLNAME'] =  names.apply(lambda row: match_names(row['MAF_NAME'], row['BLKID'], names_blocks), axis=1)
     name_errors = names.loc[pd.isna(names['FULLNAME'])]
-    print(name_errors.shape[0]/names.shape[0])
-    name_errors.to_csv('name_errors.csv')
+    print('No match rate:', name_errors.shape[0]/names.shape[0])
+    name_errors.to_csv('names_blocks_xwalk/name_match_errors.csv')
     return names
 
 def name_tlid_table(names, faces, edge_face):
@@ -248,7 +232,6 @@ def find_possible_tlid(tiger_name, block_id, face, edge_face):
     -------
     possible_tlid: a list of possible TLIDs for given household
     """
-    #print('Finding TLIDs for ', tiger_name, ', block ', block_id)
     possible_faces_df = face.loc[face['BLKID'] == block_id]
     possible_faces = possible_faces_df['TFID'].tolist()
 
@@ -256,82 +239,37 @@ def find_possible_tlid(tiger_name, block_id, face, edge_face):
                                 & (edge_face['FULLNAME'] == tiger_name)]
 
     possible_tlid = possible_edge_faces['TLID'].tolist()
-    #print(possible_tlid)
     return possible_tlid
 
 def driver(county_code = '08031'):
     # Load TIGER data
-    county_edges, county_faces = load_tiger_csv(county_code + "_edges.csv",
-                                            county_code + "_faces.csv")
+    county_edges, county_faces = load_tiger_csv("tiger_csv/" + county_code + "_edges.csv",
+                                            "tiger_csv/" + county_code + "_faces.csv")
 
     # Create edge-face relationship table
     county_edge_face = create_edge_face(county_edges, county_faces)
-    print('\n\n\n', 'Edge-Face table: \n', county_edge_face.head(), '\n\n\n')
 
     # Create names-blocks relationship table using TIGER names
     county_tiger_names = create_names_blocks(county_edge_face, county_faces)
-    print('\n\n\n', 'TIGER Names-Blocks table: \n', county_tiger_names.head(), '\n\n\n')
 
-    # Load MAF DATA
-    county_maf = load_mafx_sas(county_code + "_MAFX.sas7bdat")
-
-    '''
     # Load Denver address data (block IDs were imputed using a spatial join with face data)
-    den_maf = pd.read_csv('den_addresses.csv', converters={'BLKID': lambda x: str(x)})
-    #den_maf.loc[:,'BLKID'] = '0' + den_maf['BLKID']
-    print('\n\n\n', 'Imported Address table: \n', den_maf.head(), '\n\n\n')
-    '''
+    county_maf = pd.read_csv('addresses/' + county_code +'.csv', converters={'BLKID': lambda x: str(x)})
 
     # Match names to create MAFname-block-TIGERname tables (most time consuming step)
-    print('\n\n\n Creating names tables \n\n\n')
-
-    if os.path.exists(county_code + '_address_names.csv'):
-        county_add_names = pd.read_csv(county_code + '_address_names.csv')
+    print('\n Matching names \n')
+    if os.path.exists('names_blocks_xwalk/' + county_code + '_address_names.csv'):
+        county_add_names = pd.read_csv('names_blocks_xwalk/' + county_code + '_address_names.csv')
     else:
         county_add_names = make_names_table(county_maf, county_tiger_names)
         print(county_add_names.head())
-        county_add_names.to_csv(county_code + '_address_names.csv')
+        county_add_names.to_csv('names_blocks_xwalk/' + county_code + '_address_names.csv')
 
-    print('\n\n\n\n\n Finding TLIDs \n\n\n')
+    print('\n Finding TLIDs \n')
 
     county_add_xwalk = name_tlid_table(county_add_names, county_faces, county_edge_face)
     print(county_add_xwalk.head())
-    county_add_xwalk.to_csv(county_code + 'address_maf_xwalk.csv')
+    county_add_xwalk.to_csv('possible_tlids/' + county_code + 'address_maf_xwalk.csv')
 
 
 if __name__ == "__main__":
-
-
-    # Load TIGER data
-    den_edges, den_faces = load_tiger_csv("08031_edges.csv",
-                                            "08031_faces.csv")
-
-    # Create edge-face relationship table
-    den_edge_face = create_edge_face(den_edges, den_faces)
-    print('\n\n\n', 'Edge-Face table: \n', den_edge_face.head(), '\n\n\n')
-    #bldr_edge_face = create_edge_face(bldr_edges, bldr_faces)
-
-    # Create names-blocks relationship table using TIGER names
-    den_tiger_names = create_names_blocks(den_edge_face, den_faces)
-    print('\n\n\n', 'TIGER Names-Blocks table: \n', den_tiger_names.head(), '\n\n\n')
-    #bldr_tiger_names = create_names_blocks(bldr_edge_face, bldr_faces)
-
-    # Load Denver address data (block IDs were imputed using a spatial join with face data)
-    den_maf = pd.read_csv('den_addresses.csv', converters={'BLKID': lambda x: str(x)})
-    #den_maf.loc[:,'BLKID'] = '0' + den_maf['BLKID']
-    print('\n\n\n', 'Imported Address table: \n', den_maf.head(), '\n\n\n')
-
-    # Match names to create MAFname-block-TIGERname tables (most time consuming step)
-    print('\n\n\n Creating names tables \n\n\n')
-
-    den_add_names = make_names_table(den_maf, den_tiger_names)
-    print(den_add_names.head())
-    den_add_names.to_csv('den_add_names.csv')
-
-    ############## Everything above this point can be done once if outputs are saved as CSVs #############
-
-    print('\n\n\n\n\n Finding TLIDs \n\n\n')
-
-    den_add_xwalk = name_tlid_table(den_add_names, den_faces, den_edge_face)
-    print(den_add_xwalk.head())
-    den_add_xwalk.to_csv('den_add_xwalk.csv')
+    driver(county_code = '08031')

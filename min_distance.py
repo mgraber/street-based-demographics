@@ -2,7 +2,13 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
+from shapely import ops
 import time
+import line_profiler
+
+# Hide warnings from output
+import warnings
+warnings.filterwarnings('ignore')
 
 """
 Step 1) Open CSV of address points and load into gpd using lat/long
@@ -13,6 +19,7 @@ Step 5) Use apply with address point lat/lon and list of TLIDs as inputs to find
 Step 6) Add column of TLID to the address table
 """
 
+@profile
 def min_dist(point, edges):
     """
     Finds the TLID closest to the point, given that the TLID is one of the options
@@ -44,36 +51,6 @@ def min_dist(point, edges):
         #print('Closest TLID:', closest_tlid['TLID'])
         return closest_tlid['TLID']
 
-def min_dist(point, edges):
-    """
-    Finds the TLID closest to the point, given that the TLID is one of the options
-    found using the tiger_xwalk.py crosswalk
-
-    Parameters
-    ----------
-    edges: gpd DataFrame
-            edge data from TIGER
-    point: one row of a gpd DataFrame
-            a point representing a household, where one column is 'TLIDs'
-
-    Returns
-    -------
-    closest_tlid['TLID']: str
-            TLID of the closest street segment. If none are found, returns 'None'
-    """
-    if len(point['TLIDs']) == 0:
-        #print('No possible TLIDs')
-        return 'None'
-    if len(point['TLIDs']) == 1 or len(edges.loc[edges['TLID'].isin(point['TLIDs'])]) == 1:
-        #print('Only one option')
-        return point['TLIDs'][0]
-    else:
-        tlid_df = edges.loc[edges['TLID'].isin(point['TLIDs'])].copy(deep=True).reset_index()
-        #print(tlid_df['TLID'].head())
-        tlid_df.loc[:,'dist'] = tlid_df.apply(lambda row: point.geometry.distance(row.geometry), axis=1)
-        closest_tlid = tlid_df.iloc[np.argmin(tlid_df['dist'])]
-        #print('Closest TLID:', closest_tlid['TLID'])
-        return closest_tlid['TLID']
 
 def run_distance_calc(simplify = True, tol = 0, mids=False, sample=False, sample_rate=0.1):
     """
@@ -157,4 +134,4 @@ def run_distance_calc(simplify = True, tol = 0, mids=False, sample=False, sample
 
 
 if __name__ == "__main__":
-    run_distance_calc(simplify = False, mids=False, sample=False)
+    run_distance_calc(simplify = False, mids=True, sample=False)

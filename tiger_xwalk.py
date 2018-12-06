@@ -3,6 +3,11 @@ import pandas as pd
 import numpy as np
 import copy
 import difflib
+import line_profiler
+
+# Hide warnings from output
+import warnings
+warnings.filterwarnings('ignore')
 
 """
 This script creates a crosswalk between block-street combinations and
@@ -34,7 +39,8 @@ def load_tiger_csv(edge_path, face_path):
     # Import TIGER edge data
     edges = pd.read_csv(edge_path, converters={'TFIDL': lambda x: x.split('.')[0],
                                                  'TFIDR': lambda x: x.split('.')[0]})
-    print(edges[['TFIDL','TFIDR']].head())
+    print("\nLoaded publically available edges table:")
+    print(edges[['FULLNAME','TLID','TFIDL','TFIDR']].head())
 
 
     # Import TIGER face data
@@ -46,6 +52,7 @@ def load_tiger_csv(edge_path, face_path):
     faces.loc[:,'BLKID'] = faces['STATEFP10'] + faces['COUNTYFP10'] + faces['TRACTCE10'] + faces['BLOCKCE10']
     faces = faces[['TFID','BLKID']]
     faces.set_index('TFID')
+    print("\nLoaded publically available faces table:")
     print(faces.head())
 
     return edges, faces
@@ -176,9 +183,10 @@ def make_names_table(maf, names_blocks):
     names = names.reset_index(drop=True)
     names.loc[:,'FULLNAME'] =  names.apply(lambda row: match_names(row['MAF_NAME'], row['BLKID'], names_blocks), axis=1)
     name_errors = names.loc[pd.isna(names['FULLNAME'])]
-    print('No match rate:', name_errors.shape[0]/names.shape[0])
-    name_errors.to_csv('names_blocks_xwalk/name_match_errors.csv')
+    print("No match rate:", name_errors.shape[0]/names.shape[0])
+    name_errors.to_csv("names_blocks_xwalk/name_match_errors.csv")
     return names
+
 
 def name_tlid_table(names, faces, edge_face):
     """
@@ -202,7 +210,6 @@ def name_tlid_table(names, faces, edge_face):
             Contains a column with TIGER names, one with the neighboring block
             id, one with MAF name, and one with a list of possible TLIDs
     """
-
     names.loc[:,'TLIDs'] = names.apply(lambda row: find_possible_tlid(row['FULLNAME'],
                                                                         row['BLKID'],
                                                                         faces,
@@ -234,42 +241,55 @@ def find_possible_tlid(tiger_name, block_id, face, edge_face):
     """
     possible_faces_df = face.loc[face['BLKID'] == block_id]
     possible_faces = possible_faces_df['TFID'].tolist()
-
     possible_edge_faces = edge_face.loc[(edge_face['TFID'].isin(possible_faces))
                                 & (edge_face['FULLNAME'] == tiger_name)]
 
     possible_tlid = possible_edge_faces['TLID'].tolist()
     return possible_tlid
 
-def driver(county_code = '08031'):
+def process_county(county_code = '08031'):
     # Load TIGER data
     county_edges, county_faces = load_tiger_csv("tiger_csv/" + county_code + "_edges.csv",
                                             "tiger_csv/" + county_code + "_faces.csv")
+    # Load Denver address data (block IDs were imputed using a spatial join with face data)
+    county_maf = pd.read_csv("addresses/" + county_code + "_addresses.csv", converters={'BLKID': lambda x: str(x)})
+    print("\nLoaded address data:")
+    print(county_maf[['LATITUDE','LONGITUDE','MAF_NAME','BLKID']].head())
 
     # Create edge-face relationship table
     county_edge_face = create_edge_face(county_edges, county_faces)
+    print("\nEdge-face relationship table: ")
+    print(county_edge_face[['TLID', 'TFID', 'FULLNAME']].head())
 
     # Create names-blocks relationship table using TIGER names
     county_tiger_names = create_names_blocks(county_edge_face, county_faces)
-
-    # Load Denver address data (block IDs were imputed using a spatial join with face data)
-    county_maf = pd.read_csv('addresses/' + county_code +'.csv', converters={'BLKID': lambda x: str(x)})
+    print("\nTIGER Names-Blocks relationship table: ")
+    print(county_tiger_names.head())
 
     # Match names to create MAFname-block-TIGERname tables (most time consuming step)
-    print('\n Matching names \n')
-    if os.path.exists('names_blocks_xwalk/' + county_code + '_address_names.csv'):
-        county_add_names = pd.read_csv('names_blocks_xwalk/' + county_code + '_address_names.csv')
+    print("\n Matching names... (this will take a little while) \n")
+    if os.path.exists("names_blocks_xwalk/" + county_code + "_address_names.csv"):
+        county_add_names = pd.read_csv("names_blocks_xwalk/" + county_code + "_address_names.csv", converters={'BLKID': lambda x: str(x)})
     else:
+        if not os.path.exists("names_blocks_xwalk/"):
+            os.mkdir("names_blocks_xwalk/")
         county_add_names = make_names_table(county_maf, county_tiger_names)
-        print(county_add_names.head())
-        county_add_names.to_csv('names_blocks_xwalk/' + county_code + '_address_names.csv')
+        county_add_names.to_csv("names_blocks_xwalk/" + county_code + "_address_names.csv")
+    print("\nNames match relationship table: ")
+    print(county_add_names[['MAF_NAME', 'BLKID', 'FULLNAME']].head())
 
-    print('\n Finding TLIDs \n')
+    print("\n Finding possible TLIDs... \n")
 
     county_add_xwalk = name_tlid_table(county_add_names, county_faces, county_edge_face)
-    print(county_add_xwalk.head())
-    county_add_xwalk.to_csv('possible_tlids/' + county_code + 'address_maf_xwalk.csv')
+    print("\n Final results: \n")
+    county_add_xwalk.loc[:,'OPTIONS'] = county_add_xwalk.apply(lambda row: len(row['TLIDs']), axis=1)
+    needs_geo = county_add_xwalk.loc[county_add_xwalk['OPTIONS'] > 1]
+    print(county_add_xwalk[['MAF_NAME', 'BLKID', 'FULLNAME', 'TLIDs','OPTIONS']].head())
+    print("\nRate needing spatial selection: ", needs_geo.shape[0]/county_add_xwalk.shape[0])
+    if not os.path.exists("possible_tlids/"):
+        os.mkdir("possible_tlids/")
+    county_add_xwalk.to_csv("possible_tlids/" + county_code + "_address_maf_xwalk.csv")
 
 
 if __name__ == "__main__":
-    driver(county_code = '08031')
+    process_county(county_code = '08031')

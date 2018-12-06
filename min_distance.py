@@ -206,6 +206,8 @@ def run_distance_calc(county_code = '08031', spatial = True, simplify = False, t
 
     maf_xwalk = pd.concat([maf_has_tlid, maf_needs_tlid])
 
+    if not os.path.exists("address_tlid_xwalk/"):
+        os.mkdir("address_tlid_xwalk/")
     maf_xwalk.to_csv("address_tlid_xwalk/" + county_code + "_tlid_match.csv")
 
 if __name__ == "__main__":

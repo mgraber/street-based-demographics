@@ -3,7 +3,7 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
 from shapely import ops
-import time
+from shapely import wkt
 import line_profiler
 
 # Hide warnings from output
@@ -11,12 +11,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 """
-Step 1) Open CSV of address points and load into gpd using lat/long
-Step 2) Open edges shapefile into a gpd DataFrame
-Step 3) Open crosswalk
-Step 4) Merge crosswalk with address points
-Step 5) Use apply with address point lat/lon and list of TLIDs as inputs to find closest TLID
-Step 6) Add column of TLID to the address table
+
 """
 
 @profile
@@ -37,28 +32,144 @@ def min_dist(point, edges):
     closest_tlid['TLID']: str
             TLID of the closest street segment. If none are found, returns 'None'
     """
-    if len(point['TLIDs']) == 0:
-        #print('No possible TLIDs')
-        return 'None'
-    if len(point['TLIDs']) == 1 or len(edges.loc[edges['TLID'].isin(point['TLIDs'])]) == 1:
-        #print('Only one option')
-        return point['TLIDs'][0]
-    else:
-        tlid_df = edges.loc[edges['TLID'].isin(point['TLIDs'])].copy(deep=True).reset_index()
-        #print(tlid_df['TLID'].head())
-        tlid_df.loc[:,'dist'] = tlid_df.apply(lambda row: point.geometry.distance(row.geometry), axis=1)
-        closest_tlid = tlid_df.iloc[np.argmin(tlid_df['dist'])]
-        #print('Closest TLID:', closest_tlid['TLID'])
-        return closest_tlid['TLID']
+
+    tlid_df = edges.loc[edges['TLID'].isin(point['TLIDs'])].copy(deep=True).reset_index()
+    tlid_df.loc[:,'dist'] = tlid_df.apply(lambda row: point.geometry.distance(row.geometry), axis=1)
+    closest_tlid = tlid_df.iloc[np.argmin(tlid_df['dist'])]
+    return closest_tlid['TLID']
 
 
-def run_distance_calc(simplify = True, tol = 0, mids=False, sample=False, sample_rate=0.1):
+def find_midpoints(edges):
+    """
+    Calculates midpoints of edge segments, converting lines to points
+
+    Parameters
+    ----------
+    edges: gpd DataFrame
+            edge data from TIGER
+
+    Returns
+    -------
+    midpoints: gpd DataFrame
+    """
+    midpoints = edges.copy()
+    midpoints.loc[:,'geometry'] = edges.centroid
+    return midpoints
+
+
+def import_data(county_code = '08031', spatial = True):
+    """
+    Imports address and TIGER data
+
+    Parameters
+    ----------
+    county_code: str
+            fips code for county
+    spatial: bool
+            flag to load data and create spatial object with geopandas
+            if false, data remain in pandas df with 'geometry' column
+            containing wkt
+
+    Returns
+    -------
+    county_address_df: pd or gpd DataFrame
+            of address points
+    edges_df: pd or gpd DataFrame
+            of edges lines
+    """
+    # Open address point csv
+    county_address_df = pd.read_csv("addresses/" + county_code + "_addresses_sample.csv")
+    edges_df = pd.read_csv("tiger_csv/" + county_code + "_edges.csv")
+
+    if spatial:
+        crs = {'init': 'epsg:4269'}
+
+        # Convert addresses
+        geometry = [Point(xy) for xy in zip(county_address_df.LONGITUDE, county_address_df.LATITUDE)]
+        county_address_df = county_address_df.drop(['LATITUDE', 'LONGITUDE'], axis=1)
+        county_address_df = gpd.GeoDataFrame(county_address_df, crs=crs, geometry=geometry)
+
+        # Convert edges to spatial object
+        edges_df['geometry'] = edges_df['geometry'].apply(wkt.loads)
+        edges_df = gpd.GeoDataFrame(edges_df, crs=crs, geometry='geometry')
+
+    return county_address_df, edges_df
+
+
+def import_xwalk(county_code = '08031'):
+    """
+    Imports and parses crosswalk created using tiger_xwalk.py
+
+    Parameters
+    ----------
+    county_code: str
+            fips code for county
+
+    Returns
+    -------
+    xwalk: pd DataFrame
+            crosswalk
+    """
+    xwalk = pd.read_csv("possible_tlids/" + county_code + "_address_maf_xwalk.csv", converters={'BLKID': lambda x: int(x)})
+    # Convert TLIDs column to lists
+    xwalk = xwalk.assign(TLIDs=xwalk.TLIDs.str.strip('[]').str.split(','))
+    return xwalk
+
+
+def merge_xwalk_addresses(addresses, xwalk):
+    """
+    Merges crosswalk with addresses to find possible TLIDs for each
+
+    Parameters
+    ----------
+    addresses: pd or gpd DataFrame
+            of address points
+    xwalk: pd DataFrame
+            crosswalk
+    Returns
+    -------
+    maf_xwalk: pd or gpd DataFrame
+            addresses with possible TLIDs and OPTIONS from xwalk
+    """
+    maf_xwalk = pd.merge(addresses, xwalk,  how='left', left_on=['MAF_NAME','BLKID'], right_on = ['MAF_NAME','BLKID'])
+    return maf_xwalk
+
+
+def simplify_road(edges, county_code='08031', tol=10):
+    """
+    Simplifies road geometry using shapely
+    Saves as shapefile for easy result viewing in QGIS
+
+    Parameters
+    ----------
+    edges: gpd DataFrame
+            of edges lines
+    county_code: str
+            fips code for county
+    tol: int
+            maximum allowable meters away from original roads
+
+    Returns
+    -------
+    edges: gpd DataFrame
+            of simplified edges lines
+    """
+    edges.loc[:,'geometry'] = edges.simplify(tolerance=tol, preserve_topology=False)
+    edges.to_file(driver = 'ESRI Shapefile', filename = "tiger_csv/" + county_code + "_edges_simp_" + str(tol))
+    return edges
+
+
+def run_distance_calc(county_code = '08031', spatial = True, simplify = False, tol = 10, mids=False):
     """
     Finds the TLID closest to the point, given that the TLID is one of the options
     found using the tiger_xwalk.py crosswalk
 
     Parameters
     ----------
+    county_code: str
+            fips code for county
+    spatial: bool
+            flag to load and process data using spatial libraries
     simplify: bool
             flag to use shapely's line simplification on the roads prior to calculating
             distances from points
@@ -67,71 +178,35 @@ def run_distance_calc(simplify = True, tol = 0, mids=False, sample=False, sample
             that is acceptable
     mids: bool
             flag to instead calculate distances from the midpoints of each line segment
-    sample: bool
-            flag to run calculation on a random sample of all household points.
-    sample_rate: float
-            the size of sample desired if sample == True. Default is 10%
 
     Output
     ------
 
-    A csv titled den_tlid_match.csv, which links each household in the original (or sampled)
+    A csv titled [[county]]_tlid_match.csv, which links each household in the original (or sampled)
     input data with the closest possible TLID, after having narrowed the search area using
     the tiger_xwalk.py crosswalk
     """
 
-    import_data_t0 = time.time()
+    addresses, edges = import_data(spatial = spatial)
+    maf_xwalk = merge_xwalk_addresses(addresses, import_xwalk())
 
-    # Open address point CSV and convert to GeoDataFrame, sampling if desired
-    den_ad_pd = pd.read_csv("den_addresses_sample.csv")
-    if sample:
-        den_ad_pd = den_ad_pd.sample(frac=sample_rate, replace=False)
-        den_ad_pd.to_csv('den_addresses_sample.csv')
-    geometry = [Point(xy) for xy in zip(den_ad_pd.LONGITUDE, den_ad_pd.LATITUDE)]
-    den_ad_pd = den_ad_pd.drop(['LATITUDE', 'LONGITUDE'], axis=1)
-    crs = {'init': 'epsg:4269'}
-    addresses = gpd.GeoDataFrame(den_ad_pd, crs=crs, geometry=geometry)
+    # Identify rows needing a TLID match
+    maf_needs_tlid = maf_xwalk.loc[maf_xwalk['OPTIONS'] > 1]
+    maf_has_tlid = maf_xwalk.loc[maf_xwalk['OPTIONS'] == 1]
 
+    maf_has_tlid.loc[:,'TLID_match'] = maf_has_tlid.apply(lambda row: row['TLIDs'][0], axis=1)
 
-    # Open TIGER edges shapefile and crosswalk CSV. Calculate midpoints of edges if desired.
-    edges = gpd.read_file("denver_tiger/tl_2017_08031_edges/tl_2017_08031_edges.shp")
-    if mids:
-        midpoints = edges.copy()
-        midpoints.loc[:,'geometry'] = edges.centroid
-    xwalk = pd.read_csv("den_xwalk.csv")
+    if spatial==True:
+        if  mids==True:
+            edges = find_midpoints(edges)
+        elif simplify==True:
+            edges = simplify_road(edges, tol = tol)
+        #maf_needs_tlid = maf_needs_tlid[pd.notnull(maf_needs_tlid['TLIDs'])]
+        maf_needs_tlid.loc[:,'TLID_match'] = maf_needs_tlid.apply(lambda row: min_dist(row, edges), axis=1)
 
-    # Convert TLIDs column to lists
-    xwalk = xwalk.assign(TLIDs=xwalk.TLIDs.str.strip('[]').str.split(','))
-    import_data_t1 = time.time()
+    maf_xwalk = pd.concat([maf_has_tlid, maf_needs_tlid])
 
-    # Merge addresses and crosswalk on both street name and block ID
-    maf_xwalk = pd.merge(addresses, xwalk,  how='left', left_on=['MAF_NAME','BLKID'], right_on = ['MAF_NAME','BLKID'])
-
-    simplify_t0 = time.time()
-    if simplify == True:
-        print("Tolerance level: ", tol)
-        # Simplify roads before calculating distances
-        edges.loc[:,'geometry'] = edges.simplify(tolerance=tol, preserve_topology=False)
-        edges.to_file(driver = 'ESRI Shapefile', filename = 'simplify_' + str(tol))
-    simplify_t1 = time.time()
-
-    # Find closest TLID for each address using min_dist()
-    geometric_t0 = time.time()
-    maf_xwalk = maf_xwalk[pd.notnull(maf_xwalk['TLIDs'])]
-    if mids:
-        maf_xwalk.loc[:,'TLID_match'] = maf_xwalk.apply(lambda row: min_dist(row, midpoints), axis=1)
-    else:
-        maf_xwalk.loc[:,'TLID_match'] = maf_xwalk.apply(lambda row: min_dist(row, edges), axis=1)
-    maf_xwalk[['BLKID','MAF_NAME','TLID_match']].to_csv('den_tlid_match.csv')
-    geometric_t1 = time.time()
-
-    print("Import time: ", import_data_t1-import_data_t0)
-    print("Simplify time: ", simplify_t1-simplify_t0)
-    print("Geometric opporations time: ", geometric_t1-geometric_t0)
-    print("Average geometric opporations time: ", (geometric_t1-geometric_t0)/maf_xwalk.shape[0])
-    print("Total time: ", import_data_t1-import_data_t0+simplify_t1-simplify_t0+geometric_t1-geometric_t0)
-
-
+    maf_xwalk.to_csv("address_tlid_xwalk/" + county_code + "_tlid_match.csv")
 
 if __name__ == "__main__":
-    run_distance_calc(simplify = False, mids=True, sample=False)
+    run_distance_calc(county_code = '08031')

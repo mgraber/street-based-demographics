@@ -2,6 +2,7 @@ import match_tlid_utils as tlid_utils
 import pandas as pd
 import numpy as np
 import csv
+import os
 
 
 def county_to_dicts(county_code='08031'):
@@ -37,6 +38,9 @@ def match_county_tlid(county_code='08031'):
     print("Total output multi:", len(multi_results))
     results = {**single, **multi_results}
     print("Total output addresses:", len(results))
+
+    if not os.path.exists("address_tlid_xwalk/"):
+        os.mkdir("address_tlid_xwalk/")
 
     with open("address_tlid_xwalk/" + county_code + "_tlid_match.csv", 'w') as f:
         writer = csv.writer(f)

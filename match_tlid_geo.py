@@ -114,7 +114,7 @@ def import_xwalk(county_code = '08031'):
     """
     xwalk = pd.read_csv("possible_tlids/" + county_code + "_address_maf_xwalk.csv", converters={'BLKID': lambda x: int(x)})
     # Convert TLIDs column to lists
-    xwalk = xwalk.assign(TLIDs=xwalk.TLIDs.str.strip('[]').str.split(','))
+    xwalk = xwalk.assign(TLIDs=xwalk.TLIDs.str.strip('[]').str.replace(" ", "").str.split(','))
     return xwalk
 
 
@@ -212,7 +212,7 @@ def run_distance_calc(county_code = '08031', spatial = True, simplify = False, t
 
     if not os.path.exists("address_tlid_xwalk/"):
         os.mkdir("address_tlid_xwalk/")
-    maf_xwalk.to_csv("address_tlid_xwalk/" + county_code + "_tlid_match.csv")
+    maf_xwalk.to_csv("address_tlid_xwalk/" + county_code + "_geo_match.csv")
 
 if __name__ == "__main__":
     run_distance_calc(county_code = '08031')

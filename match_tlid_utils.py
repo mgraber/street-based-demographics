@@ -54,7 +54,7 @@ def import_xwalk(county_code = '08031'):
     """
     xwalk = pd.read_csv("possible_tlids/" + county_code + "_address_maf_xwalk.csv", converters={'BLKID': lambda x: str(x)})
     # Convert TLIDs column to lists
-    xwalk = xwalk.assign(TLIDs=xwalk.TLIDs.str.strip('[]').str.split(','))
+    xwalk = xwalk.assign(TLIDs=xwalk.TLIDs.str.strip('[]').str.replace(" ", "").str.split(','))
     return xwalk
 
 
@@ -76,7 +76,7 @@ def merge_xwalk_addresses(addresses, xwalk):
     addresses['MAF_NAME'], addresses['BLKID'] = addresses['MAF_NAME'].astype(str), addresses['BLKID'].astype(str)
     xwalk['MAF_NAME'], xwalk['BLKID'] = xwalk['MAF_NAME'].astype(str), xwalk['BLKID'].astype(str)
     maf_xwalk = pd.merge(addresses, xwalk,  how='left', left_on=['MAF_NAME','BLKID'], right_on = ['MAF_NAME','BLKID'])
-    maf_xwalk = maf_xwalk.set_index(['MAF_NAME', 'BLKID'])
+    maf_xwalk = maf_xwalk.set_index(['MAFID'])
     return maf_xwalk
 
 def is_multi_TLID_candidates(edges_row_TLIDs):
@@ -134,21 +134,20 @@ def get_multi_TLID_addresses(xwalk):
     address_point_TLIDs: dict
             dictionary of addresses points as key with possible TLIDs as values
     """
-    address_point_TLID_candidates = xwalk.loc[:,'TLIDs'].to_dict()
-    address_point_TLIDs = {}
-    for id, candidates in address_point_TLID_candidates.items():
-        if isinstance(candidates, list):
-            if len(candidates) > 1:
-                address_point_TLIDs[id] = candidates
-    return address_point_TLIDs
-
+    address_points = xwalk.loc[:,['TLIDs', 'LATITUDE', 'LONGITUDE']].to_dict('index')
+    multi_TLID_addresses = {}
+    for id, data in address_points.items():
+        if isinstance(data['TLIDs'], list):
+            if len(data['TLIDs']) > 1:
+                multi_TLID_addresses[id] = data
+    return multi_TLID_addresses
 
 def find_edge_geo(id, edges):
     try:
         geo = edges.loc[id, 'geometry']
         return geo
     except:
-        return 'None'
+        return None
 
 def get_candidate_geoms(multi_TLID_addresses, edges):
     """
@@ -164,8 +163,8 @@ def get_candidate_geoms(multi_TLID_addresses, edges):
             of TLID geometries
     """
     geom_list = {}
-    for idx, row in multi_TLID_addresses.items():
-        geom_list[idx] = {id : find_edge_geo(id, edges) for id in row}
+    for id, data in multi_TLID_addresses.items():
+        geom_list[id] = {tlid : find_edge_geo(tlid, edges) for tlid in data['TLIDs']}
     return geom_list
 
 
@@ -186,7 +185,7 @@ def find_closest(linedict, point):
     closest_line = None
     min_dist = np.inf
     for idx, aline_wkt in linedict.items():
-        if aline_wkt != 'None':
+        if isinstance(aline_wkt, str):
             aline = loads(aline_wkt)
             #print(idx, aline)
             for vert in list(aline.coords):

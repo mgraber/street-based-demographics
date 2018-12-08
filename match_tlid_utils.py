@@ -13,16 +13,12 @@ def import_data(county_code = '08031'):
     ----------
     county_code: str
             fips code for county
-    spatial: bool
-            flag to load data and create spatial object with geopandas
-            if false, data remain in pandas df with 'geometry' column
-            containing wkt
 
     Returns
     -------
-    county_address_df: pd or gpd DataFrame
+    county_address_df: pd DataFrame
             of address points
-    edges_df: pd or gpd DataFrame
+    edges_df: pd DataFrame
             of edges lines
     """
     # Open address point csv
@@ -71,7 +67,7 @@ def merge_xwalk_addresses(addresses, xwalk):
     Returns
     -------
     maf_xwalk: pd or gpd DataFrame
-            addresses with possible TLIDs and OPTIONS from xwalk
+            addresses with possible TLIDs from xwalk, index is (synthetic) MAFID or other point identifier
     """
     addresses['MAF_NAME'], addresses['BLKID'] = addresses['MAF_NAME'].astype(str), addresses['BLKID'].astype(str)
     xwalk['MAF_NAME'], xwalk['BLKID'] = xwalk['MAF_NAME'].astype(str), xwalk['BLKID'].astype(str)
@@ -123,7 +119,7 @@ def get_single_TLID_addresses(xwalk):
 def get_multi_TLID_addresses(xwalk):
     """
     Converts address point and TLID possibilities to a dictionary
-    Identifies where there are multiple options
+    Identifies where there are multiple options.
 
     Parameters
     ----------
@@ -132,7 +128,8 @@ def get_multi_TLID_addresses(xwalk):
     Returns
     -------
     address_point_TLIDs: dict
-            dictionary of addresses points as key with possible TLIDs as values
+            dictionary of addresses points, where key is synthetic MAFID, and values
+            are another dictionary containing TLID lists, latitude, and longitude
     """
     address_points = xwalk.loc[:,['TLIDs', 'LATITUDE', 'LONGITUDE']].to_dict('index')
     multi_TLID_addresses = {}
@@ -151,7 +148,7 @@ def find_edge_geo(id, edges):
 
 def get_candidate_geoms(multi_TLID_addresses, edges):
     """
-    Extracts geometry of the TLIDs, saving as a dictionary
+    Extracts geometry of all possible TLIDs for an address, saving as a dictionary
     Parameters
     ----------
     multi_TLID_addresses: dict
@@ -159,8 +156,8 @@ def get_candidate_geoms(multi_TLID_addresses, edges):
     Returns
     -------
     geom_list: dict
-            dictionary, where key is a street-block combo and value is a list
-            of TLID geometries
+            dictionary, where key is a MAFID and value is a dictionary with
+            TLIDs as keys and WKT geometries as values
     """
     geom_list = {}
     for id, data in multi_TLID_addresses.items():
@@ -171,7 +168,8 @@ def get_candidate_geoms(multi_TLID_addresses, edges):
 def find_closest(linedict, point):
     """
     Finds closest TLID to the given point, looping through
-    the vertices of the line
+    the vertices of the line. Finds a local minimum distance
+    along the line geometry.
     ----------
     linedict: dict
             TLIDs are keys, line geometry are values
@@ -187,7 +185,6 @@ def find_closest(linedict, point):
     for idx, aline_wkt in linedict.items():
         if isinstance(aline_wkt, str):
             aline = loads(aline_wkt)
-            #print(idx, aline)
             for vert in list(aline.coords):
                 if straight_line_distance(vert, point) < min_dist:
                     min_dist = straight_line_distance(vert, point)
@@ -202,10 +199,5 @@ def straight_line_distance(coord1, coord2):
                 of latitude, longitude
     coord2: two-value np array
                 of latitude, longitude
-
-    Returns
-    -------
-    closest_line: dict item
-            TLID and geometry of closest line
     """
     return np.sqrt(np.sum((coord1 - coord2) ** 2))

@@ -284,7 +284,7 @@ def process_county(county_code = '08031'):
     print("\n Final results: \n")
     county_add_xwalk.loc[:,'OPTIONS'] = county_add_xwalk.apply(lambda row: len(row['TLIDs']), axis=1)
     needs_geo = county_add_xwalk.loc[county_add_xwalk['OPTIONS'] > 1]
-    print(county_add_xwalk[['MAF_NAME', 'BLKID', 'FULLNAME', 'TLIDs','OPTIONS']].head())
+    print(county_add_xwalk[['MAF_NAME', 'BLKID', 'TLIDs']].head())
     print("\nRate needing spatial selection: ", needs_geo.shape[0]/county_add_xwalk.shape[0])
     if not os.path.exists("possible_tlids/"):
         os.mkdir("possible_tlids/")

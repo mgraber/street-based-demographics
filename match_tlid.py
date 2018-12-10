@@ -5,7 +5,7 @@ import csv
 import os
 
 
-def county_to_dicts(county_code='08031'):
+def county_to_dicts(county_code='08031', sample=True):
     """
     Imports address points, crosswalk from tiger_xwalk.py, and TIGER edges data
     Merges addresses with crosswalk, indexing on synthetic MAFID. Identifies addresses
@@ -18,6 +18,8 @@ def county_to_dicts(county_code='08031'):
     ----------
     county_code: str
             fips code for county
+    sample: bool
+            if true, only process 10% of addresses
 
     Returns
     -------
@@ -32,15 +34,12 @@ def county_to_dicts(county_code='08031'):
             TLIDs as keys and WKT geometries as values
     """
     # Import data and convert to dictionaries
-    addresses, edges = tlid_utils.import_data(county_code=county_code)
-    print("Total input addresses:", addresses.shape[0])
+    addresses, edges = tlid_utils.import_data(county_code=county_code, sample=sample)
     xwalk = tlid_utils.import_xwalk(county_code=county_code)
     maf_xwalk = tlid_utils.merge_xwalk_addresses(addresses, xwalk)
 
     single_match = tlid_utils.get_single_TLID_addresses(maf_xwalk)
-    print("Total input single:", len(single_match))
     multi_match = tlid_utils.get_multi_TLID_addresses(maf_xwalk)
-    print("Total input multi:", len(multi_match))
     geom_list = tlid_utils.get_candidate_geoms(multi_match, edges)
 
 
@@ -67,6 +66,7 @@ def match_an_address(id, attributes, geom_list):
     k, v: str, str
             synthetic MAFID and TLID match
     """
+    # Get dictionary of geom of all possible TLIDs
     linedict = geom_list[id]
     point = np.array((float(attributes['LATITUDE']), float(attributes['LONGITUDE'])))
     k, v = id, tlid_utils.find_closest(linedict, point)
@@ -95,7 +95,7 @@ def match_generator(multi_match, geom_list):
     results_list = (match_an_address(id, attributes, geom_list) for id, attributes in multi_match.items())
     return dict(results_list)
 
-def match_county_tlid(county_code='08031'):
+def match_county_tlid(county_code='08031', sample=True):
     """
     Opens data, crosswalk, and edges file and performs TLID match for address points.
     Saves results as a csv named "address_tlid_xwalk/[[county_code]]_tlid_match.csv"
@@ -105,19 +105,25 @@ def match_county_tlid(county_code='08031'):
     ----------
     county_code: str
             fips code for county
+    sample: bool
+            if true, only process 10% of addresses
 
     """
-    single, multi, geom_list = county_to_dicts(county_code=county_code)
+    single, multi, geom_list = county_to_dicts(county_code=county_code, sample=sample)
     multi_results = match_generator(multi, geom_list)
-    print("Total output multi:", len(multi_results))
     results = {**single, **multi_results}
-    print("Total output addresses:", len(results))
 
     if not os.path.exists("address_tlid_xwalk/"):
         os.mkdir("address_tlid_xwalk/")
 
-    with open("address_tlid_xwalk/" + county_code + "_tlid_match.csv", 'w') as f:
+    if sample:
+        outfile_name = "address_tlid_xwalk/" + county_code + "samp_tlid_match.csv"
+    else:
+        outfile_name = "address_tlid_xwalk/" + county_code + "_tlid_match.csv"
+
+    with open(outfile_name, 'w') as f:
         writer = csv.writer(f)
+        writer.writerow(["MAFID", "TLID_match"])
         for row in results.items():
             writer.writerow(row)
 

@@ -5,7 +5,7 @@ from shapely.geometry import LineString
 from shapely.wkt import loads
 import math
 
-def import_data(county_code = '08031'):
+def import_data(county_code = '08031', sample=True):
     """
     Imports address and TIGER data
 
@@ -13,6 +13,8 @@ def import_data(county_code = '08031'):
     ----------
     county_code: str
             fips code for county
+    sample: bool
+            if true, only process 10% of addresses
 
     Returns
     -------
@@ -22,12 +24,9 @@ def import_data(county_code = '08031'):
             of edges lines
     """
     # Open address point csv
-    county_address_df = pd.read_csv("addresses/" + county_code + "_addresses.csv", converters={'BLKID': lambda x: str(x),
-                                                                                                'Unnamed: 0': lambda x: str(x)})
-
-    # Use former index to create a synthetic MAFID -- this is any unique identifier for each household
-    county_address_df = county_address_df.rename(index=str, columns={"Unnamed: 0": "MAFID"})
-
+    county_address_df = pd.read_csv("addresses/" + county_code + "_addresses.csv", converters={'BLKID': lambda x: str(x)})
+    if sample:
+        county_address_df = county_address_df.sample(frac=.1)
     edges_df = pd.read_csv("tiger_csv/" + county_code + "_edges.csv", converters={'TLID': lambda x: str(x)})
     edges_df = edges_df.set_index(['TLID'])
 

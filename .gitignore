@@ -1,0 +1,50 @@
+
+### JupyterNotebook ###
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+*/profiling.ipynb
+*/plot_tlids.ipynb
+
+
+### Address and TIGER data ###
+*/addresses/08031_addresses.csv
+*/addresses/*.cpg
+*/addresses/*.dbf
+*/addresses/*.prj
+*/addresses/*.sbn
+*/addresses/*.sbx
+*/addresses/*.shp.xml
+*/tiger_csv/boulder_tiger/*
+*/tiger_csv/den_tiger/*
+*/tiger_csv/county_boundary_lines/*
+
+
+### TLID crosswalk results ###
+*/address_tlid_xwalk/*
+*/names_blocks_xwalk/*
+*/possible_tlids/*
+*/tiger_csv/edge_midpoints/*
+*/tiger_csv/simplified_edges/*
+
+
+### Test scripts ###
+*match_tlid_test.py
+
+
+### Code profiling results ###
+*.lprof
+
+
+### Materials for RDC transfer ###
+*.zip
+*/transfer_to_rdc/*
+
+
+### Presentation materials ###
+*/notes_presentation/*
+
+
+
+# Remove previous ipynb_checkpoints
+#   git rm -r .ipynb_checkpoints/
+#

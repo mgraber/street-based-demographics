@@ -241,7 +241,12 @@ def find_possible_tlid(tiger_name, block_id, face, edge_face):
     """
     possible_faces_df = face.loc[face['BLKID'] == block_id]
     possible_faces = possible_faces_df['TFID'].tolist()
-    possible_edge_faces = edge_face.loc[(edge_face['TFID'].isin(possible_faces))
+
+    # This check assigns all block TLIDs as possible for those that fail the string match
+    if tiger_name == None:
+        possible_edge_faces = edge_face.loc[(edge_face['TFID'].isin(possible_faces))]
+    else:
+        possible_edge_faces = edge_face.loc[(edge_face['TFID'].isin(possible_faces))
                                 & (edge_face['FULLNAME'] == tiger_name)]
 
     possible_tlid = possible_edge_faces['TLID'].tolist()
@@ -267,7 +272,7 @@ def process_county(county_code = '08031'):
     print(county_tiger_names.head())
 
     # Match names to create MAFname-block-TIGERname tables (most time consuming step)
-    print("\n Matching names... (this will take a little while) \n")
+    print("\n Matching names... \n")
     if os.path.exists("../results/names_blocks_xwalk/" + county_code + "_address_names.csv"):
         county_add_names = pd.read_csv("../results/names_blocks_xwalk/" + county_code + "_address_names.csv", converters={'BLKID': lambda x: str(x)})
     else:

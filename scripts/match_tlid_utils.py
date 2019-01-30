@@ -115,9 +115,9 @@ def get_single_TLID_addresses(xwalk):
     address_no_cand = []
     for id, candidates in address_point_TLID_candidates.items():
         if isinstance(candidates, list):
-            if len(candidates) == 1 and candidates[0]:
+            if len(candidates) == 1:
                 address_point_TLID[id] = candidates[0]
-            if len(candidates) == 0:
+            elif len(candidates) == 0:
                 print("Found address with empty list of TLID candidates")
                 address_no_cand.append(id)
         else:

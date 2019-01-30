@@ -30,7 +30,6 @@ def import_data(county_code = '08031', sample=True):
         county_address_df = county_address_df.sample(frac=.1)
     edges_df = pd.read_csv("../data/tiger_csv/" + county_code + "_edges.csv", converters={'TLID': lambda x: str(x)})
     edges_df = edges_df.set_index(['TLID'])
-    print(edges_df.head(30))
 
     return county_address_df, edges_df
 

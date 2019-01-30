@@ -112,6 +112,7 @@ def match_county_tlid(county_code='08031', sample=False):
     multi_results = match_generator(multi, geom_list)
     results = {**single, **multi_results}
 
+    print("Length of crosswalk results:", len(results))
     if not os.path.exists("../results/address_tlid_xwalk/"):
         os.mkdir("../results/address_tlid_xwalk/")
 

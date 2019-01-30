@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import csv
 import os
-
 import match_tlid_utils as tlid_utils
 
 def county_to_dicts(county_code='08031', sample=True):

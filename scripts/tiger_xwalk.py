@@ -182,7 +182,7 @@ def make_names_table(maf, names_blocks):
     names = names.drop_duplicates(keep='first')
     names = names.reset_index(drop=True)
     names.loc[:,'FULLNAME'] =  names.apply(lambda row: match_names(row['MAF_NAME'], row['BLKID'], names_blocks), axis=1)
-    name_errors = names.loc[pd.isna(names['FULLNAME'])]
+    name_errors = names[names['FULLNAME'].isna()]
     print("No match rate:", name_errors.shape[0]/names.shape[0])
     name_errors.to_csv("../results/names_blocks_xwalk/name_match_errors.csv")
     return names
@@ -242,8 +242,10 @@ def find_possible_tlid(tiger_name, block_id, face, edge_face):
     possible_faces_df = face.loc[face['BLKID'] == block_id]
     possible_faces = possible_faces_df['TFID'].tolist()
 
+
     # This check assigns all block TLIDs as possible for those that fail the string match
-    if tiger_name == None:
+    if (tiger_name == None) or (tiger_name == '') or (tiger_name == 'nan'):
+        print('Empty name found')
         possible_edge_faces = edge_face.loc[(edge_face['TFID'].isin(possible_faces))]
     else:
         possible_edge_faces = edge_face.loc[(edge_face['TFID'].isin(possible_faces))
@@ -275,6 +277,7 @@ def process_county(county_code = '08031'):
     print("\n Matching names... \n")
     if os.path.exists("../results/names_blocks_xwalk/" + county_code + "_address_names.csv"):
         county_add_names = pd.read_csv("../results/names_blocks_xwalk/" + county_code + "_address_names.csv", converters={'BLKID': lambda x: str(x)})
+        county_add_names = county_add_names.fillna('')
     else:
         if not os.path.exists("../results/names_blocks_xwalk/"):
             os.mkdir("../results/names_blocks_xwalk/")

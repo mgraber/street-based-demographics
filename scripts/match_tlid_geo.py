@@ -39,9 +39,9 @@ def import_data(county_code = '08031', spatial = True, sample=True):
             of edges lines
     """
     # Open address point csv
-    county_address_df = pd.read_csv("data/addresses/" + county_code + "_addresses.csv")
+    county_address_df = pd.read_csv("../data/addresses/" + county_code + "_addresses.csv")
     county_address_df.set_index('MAFID')
-    edges_df = pd.read_csv("data/tiger_csv/" + county_code + "_edges.csv")
+    edges_df = pd.read_csv("../data/tiger_csv/" + county_code + "_edges.csv")
     edges_df.set_index(['TLID'])
 
     if spatial:

@@ -207,9 +207,9 @@ def find_closest(linedict, point):
                 if straight_line_distance(vert, point) < min_dist:
                     min_dist = straight_line_distance(vert, point)
                     closest_line = idx
-        if closest_line == None:
-            print("No TLID match found")
-        return closest_line
+    if closest_line == None:
+        print("No TLID match found")
+    return closest_line
 
 def straight_line_distance(coord1, coord2):
     """

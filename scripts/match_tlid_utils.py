@@ -25,6 +25,7 @@ def import_data(county_code = '08031', sample=True):
     """
     # Open address point csv
     county_address_df = pd.read_csv("../data/addresses/" + county_code + "_addresses.csv", converters={'BLKID': lambda x: str(x)})
+    print("Number of addresses in input file:", county_address_df.shape[0])
     if sample:
         county_address_df = county_address_df.sample(frac=.1)
     edges_df = pd.read_csv("../data/tiger_csv/" + county_code + "_edges.csv", converters={'TLID': lambda x: str(x)})
@@ -73,6 +74,7 @@ def merge_xwalk_addresses(addresses, xwalk):
     xwalk['MAF_NAME'], xwalk['BLKID'] = xwalk['MAF_NAME'].astype(str), xwalk['BLKID'].astype(str)
     maf_xwalk = pd.merge(addresses, xwalk,  how='left', left_on=['MAF_NAME','BLKID'], right_on = ['MAF_NAME','BLKID'])
     maf_xwalk = maf_xwalk.set_index(['MAFID'])
+    print("Number of addresses sucessfully merged with crosswalk:", maf_xwalk.shape[0])
     return maf_xwalk
 
 def is_multi_TLID_candidates(edges_row_TLIDs):
@@ -109,11 +111,21 @@ def get_single_TLID_addresses(xwalk):
             results dictionary -- contains results for one-option addresses
     """
     address_point_TLID_candidates = xwalk.loc[:,'TLIDs'].to_dict()
+    print("Number of candidates in dictionary form: ", len(address_point_TLID_candidates))
     address_point_TLID = {}
+    address_no_cand = []
     for id, candidates in address_point_TLID_candidates.items():
         if isinstance(candidates, list):
             if len(candidates) == 1 and candidates[0]:
                 address_point_TLID[id] = candidates[0]
+            if len(candidates) == 0:
+                print("Found address with empty list of TLID candidates")
+                address_no_cand.append(id)
+        else:
+            print("Found address with no list of TLID candidates")
+            address_no_cand.append(id)
+    print("Number of one-option addresses:", len(address_point_TLID))
+    print("Number of no-option addresses:", len(address_no_cand))
     return address_point_TLID
 
 def get_multi_TLID_addresses(xwalk):
@@ -132,11 +144,17 @@ def get_multi_TLID_addresses(xwalk):
             are another dictionary containing TLID lists, latitude, and longitude
     """
     address_points = xwalk.loc[:,['TLIDs', 'LATITUDE', 'LONGITUDE']].to_dict('index')
+    print("Number of candidates in dictionary form, multi: ", len(address_points))
     multi_TLID_addresses = {}
+    address_no_cand = []
     for id, data in address_points.items():
         if isinstance(data['TLIDs'], list):
             if len(data['TLIDs']) > 1:
                 multi_TLID_addresses[id] = data
+        else:
+            print("Found address with no list of TLID candidates")
+            address_no_cand.append(id)
+    print("Number of multi-option addresses:", len(multi_TLID_addresses))
     return multi_TLID_addresses
 
 def find_edge_geo(id, edges):

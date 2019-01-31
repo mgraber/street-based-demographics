@@ -204,11 +204,12 @@ def find_closest(linedict, point):
         if isinstance(aline_wkt, str):
             aline = loads(aline_wkt)
             for vert in list(aline.coords):
-                if straight_line_distance(vert, point) < min_dist:
-                    min_dist = straight_line_distance(vert, point)
+                dist = straight_line_distance(vert, point)
+                if dist < min_dist:
+                    min_dist = dist
                     closest_line = idx
     if closest_line == None:
-        print("No TLID match found")
+        print("No TLID match found, last distance calculated: ", vert, point, dist)
     return closest_line
 
 def straight_line_distance(coord1, coord2):

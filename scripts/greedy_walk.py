@@ -181,6 +181,8 @@ def find_most_similar(tlid, node, edge_node, metric='e'):
             ID of the current street segment
     node: str
             ID of the intersection where a decision is being made
+    edge_node: dict
+            keys are TNIDs, values are lists of associated TLIDs
     metric: 'e' or 'm'
             If 'e', computes Euclidean distance. If 'm', computes mahalanobis
             distance

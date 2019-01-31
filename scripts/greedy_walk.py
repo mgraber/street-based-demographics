@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
-import math
+import scipy as sp
+from scipy.spatial.distance import mahalanobis
 
 def load_roads(edge_path):
     """
@@ -85,7 +86,8 @@ def create_node_dict(edge_node_df):
     edge_node = edge_node_df.groupby('TNID')['TLID'].apply(list).to_dict()
     return edge_node
 
-def generate_synthetic_data(edges, cols=4):
+
+def generate_synthetic_data(edges, cols=4, invcov=True):
     """
     Generates columns of synthetic data for the sake of method development
 
@@ -95,22 +97,113 @@ def generate_synthetic_data(edges, cols=4):
             each row is a road edge (street segment)
     cols: int
             number of columns of synthetic data to generate
+    invcov: bool
+            if True, also returns an inverse covariance matrix
+            of the data
+
     Returns
     -------
     edges_data: pd DataFrame
             each row is a road edge (street segment), with TLID as its index,
             remaining columns are random numbers representing demographic data.
+    invcov_data: np array, optional
+            inverse covariance of the array of data returned in edges_data,
+            used to calculate Mahalanobis distance
     """
     column_names = list(map(int, list(range(cols))))
     edges_data = pd.DataFrame(np.random.randn(edges.shape[0], cols), columns=column_names)
     edges_data['TLID'] = edges['TLID']
     edges_data = edges_data.set_index('TLID')
-    return edges_data
+
+    if invcov:
+        cov = edges_data.cov()
+        invcov_data = sp.linalg.inv(cov)
+        return edges_data, invcov_data
+
+    else:
+        return edges_data
+
+def mahal_distance(tlid_1, tlid_2, data, invcov_data):
+    """
+    Calculates multivariate distance metric between two data points
+    Uses Mahalanobis distance
+
+    Parameters
+    ----------
+    tlid_1: str
+            ID of first data point
+    tlid_1: str
+            ID of second data point
+    data: pd DataFrame
+            contains data, where index is TLIDs
+    invcov_data: np array
+            covariance matrix for data
+
+    Returns
+    -------
+    m_dist: float
+            Mahalanobis distance between the two data points
+    """
+
+    m_dist = mahalanobis(data.loc[tlid_1,:], data.loc[tlid_2,:], invcov_data)
+    return m_dist
+
+def euc_distance(tlid_1, tlid_2, data):
+    """
+    Calculates multivariate distance metric between two data points
+    Uses Euclidean distance
+
+    Parameters
+    ----------
+    tlid_1: str
+            ID of first data point
+    tlid_1: str
+            ID of second data point
+    data: pd DataFrame
+            contains data, where index is TLIDs
+    Returns
+    -------
+    e_dist: float
+            Euclidean distance between the two data points
+    """
+
+    e_dist = pd.linalg.norm(data.loc[tlid_1,:]-data.loc[tlid_2,:])
+    return e_dist
+
+def find_most_similar(tlid, node, edge_node, metric='e'):
+    """
+    Searches all other TLIDs sharing the same node, computing multivariate
+    distance metrics to each. Returns the TLID of the most similar.
+
+    Parameters
+    ----------
+    tlid: str
+            ID of the current street segment
+    node: str
+            ID of the intersection where a decision is being made
+    metric: 'e' or 'm'
+            If 'e', computes Euclidean distance. If 'm', computes mahalanobis
+            distance
+    Returns
+    -------
+    next_tlid: str
+            ID of the most similar street segment sharing the same node
+    """
+    min_dist = np.inf
+    next_tlid = None
+    for contig_tlid in edge_node[node]:
+        if metric=='e':
+            dist = euc_distance(tlid, contig_tlid)
+        elif metric=='m':
+            dist = mahal_distance(tlid, contig_tlid)
+        if dist < min_dist:
+            dist = min_dist
+            next_tlid = contig_tlid
+    return next_tlid
 
 
 if __name__ == "__main__":
     roads = load_roads('../data/tiger_csv/08031_edges.csv')
     edge_node = create_node_dict(create_edge_node_df(roads))
-    #print(edge_node)
     data = generate_synthetic_data(roads)
     print(data.head())

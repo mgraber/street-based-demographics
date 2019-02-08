@@ -84,16 +84,45 @@ def find_p_vals(data, iterations=10):
 
     # Aggregate "data"
     # TODO: Change this aggregation to account for real data (TLID-BLKID differences)
-    aggs = data[['TLID','A', 'B', 'C', 'D', 'E']].groupby(['TLID']).mean()
+    aggs = data[['TLID','BLKID','A', 'B', 'C', 'D', 'E']].groupby(['TLID']).mean()
+    blk_aggs = data[['TLID','BLKID','A', 'B', 'C', 'D', 'E']].groupby(['BLKID']).mean()
 
     for i in range(iterations):
         shuffled_data = permute_houses(data, seed=i)
         synth_aggs = shuffled_data[['TLID_permuted_'+str(i),'A', 'B', 'C', 'D', 'E']].groupby(['TLID_permuted_'+str(i)]).mean()
         for col in ['A', 'B', 'C', 'D', 'E']:
-            aggs.loc[:, col+'_p_'+str(i)] = synth_aggs[synth_aggs.abs()[col] > aggs.abs()[col]].shape[0] / synth_aggs.shape[0]
+            #print(synth_aggs[synth_aggs.abs()[col] > aggs.abs()[col]].shape[0])
+            aggs.loc[:, col+'_p_'+str(i)] = aggs.apply(lambda row: rate_more_extreme(row[col], synth_aggs[col]), axis=1)
+            #aggs.loc[:, col+'_p_'+str(i)] = synth_aggs[synth_aggs.abs()[col] > aggs.abs()[col]].shape[0] / synth_aggs.shape[0]
 
     aggs_avg = average_pvals(pval_df=aggs, iterations=iterations)
     return aggs_avg
+
+
+def rate_more_extreme(val, synth_series):
+    """
+    Finds proportion of synthetic values that are more extreme than the given
+    value
+
+    Parameters
+    ----------
+    val: float
+            value corresponding with a single block-tlid combinations aggregation
+            difference
+    synth_series: pd Series
+            column of a pd DataFrame containing block-tlid
+            combinations aggregation difference for a single iteration of shuffled
+            data, must be of the same variable as val
+
+    Returns
+    -------
+    p_val: float
+            empirical p-value based on a null-hypothesis formed by the randomly
+            shuffled households
+    """
+
+    p_val = synth_series[abs(val) < synth_series.abs()].shape[0] / synth_series.shape[0]
+    return p_val
 
 
 if __name__ == "__main__":

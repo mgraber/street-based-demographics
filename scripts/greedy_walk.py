@@ -26,10 +26,11 @@ def load_roads(edge_path):
                                                 'TLID':lambda x: str(x),
                                                 'TNIDF':lambda x: str(x),
                                                 'TNIDT':lambda x: str(x)})
-    edges = edges_file[['FULLNAME','TLID','TFIDL','TFIDR','TNIDF','TNIDT', 'ROADFLG']]
+    edges = edges_file.loc[:,['FULLNAME','TLID','TFIDL','TFIDR','TNIDF','TNIDT', 'ROADFLG']]
+    edges.dropna(subset=['FULLNAME','TLID','TFIDL','TFIDR','TNIDF','TNIDT', 'ROADFLG'], inplace=True)
 
     # Only keep roads
-    edges = edges[edges['ROADFLG'] == 'Y']
+    edges = edges[edges['ROADFLG'] == 'Y'].reset_index()
     edges.drop(['ROADFLG'], axis=1)
 
     return edges
@@ -65,6 +66,8 @@ def create_edge_node_df(edges):
 
     edge_node_df = from_nodes.append(to_nodes)
 
+    print("Check that every edge has both to/from nodes: ", edge_node_df.shape[0]/edges.shape[0])
+
     return  edge_node_df
 
 
@@ -86,7 +89,6 @@ def create_node_dict(edge_node_df):
     """
     edge_node = edge_node_df.groupby('TNID')['TLID'].apply(list).to_dict()
     nodes_from_edges = edge_node_df.groupby('TLID')['TNID'].apply(list).to_dict()
-    print(nodes_from_edges)
     return edge_node, nodes_from_edges
 
 
@@ -114,13 +116,13 @@ def generate_synthetic_data(edges, cols=4, invcov=True):
             used to calculate Mahalanobis distance
     """
     column_names = list(map(int, list(range(cols))))
-    edges_data = pd.DataFrame(np.random.randn(edges.shape[0], cols), columns=column_names)
+    edges_data = pd.DataFrame(np.random.rand(edges.shape[0], cols), columns=column_names)
     edges_data.loc[:,'TLID'] = edges['TLID']
     edges_data.loc[:,'FULLNAME'] = edges['FULLNAME']
     # Block ID is not contianed in edges file, but is contained in TLID aggregated data (?)
     ## TODO: Check that TLID aggregations keep BLKID, create BLKID for synthetic data
     #edges_data.loc[:,'BLKID'] = edges['BLKID']
-    edges_data = edges_data.set_index('TLID')
+    edges_data.set_index('TLID', inplace=True)
 
     if invcov:
         cov = edges_data.drop('FULLNAME', axis=1).cov()
@@ -151,8 +153,13 @@ def mahal_distance(tlid_1, tlid_2, data, invcov_data):
     m_dist: float
             Mahalanobis distance between the two data points
     """
-
-    m_dist = mahalanobis(data.loc[tlid_1,:], data.loc[tlid_2,:], invcov_data)
+    point_1 = data.loc[tlid_1,:]
+    try:
+        point_2 = data.loc[tlid_2,:]
+    except:
+        print("No households on this possible TLID")
+        return np.inf
+    m_dist = mahalanobis(point_1, point_2, invcov_data)
     return m_dist
 
 def euc_distance(tlid_1, tlid_2, data):
@@ -173,8 +180,13 @@ def euc_distance(tlid_1, tlid_2, data):
     e_dist: float
             Euclidean distance between the two data points
     """
-
-    e_dist = pd.linalg.norm(data.loc[tlid_1,:]-data.loc[tlid_2,:])
+    point_1 = data.loc[tlid_1,:]
+    try:
+        point_2 = data.loc[tlid_2,:]
+    except:
+        print("No households on this possible TLID")
+        return np.inf
+    e_dist = np.linalg.norm(point_1-point_2)
     return e_dist
 
 def find_most_similar(tlid, node, edge_node, data, invcov_data=None, metric='m'):
@@ -190,9 +202,10 @@ def find_most_similar(tlid, node, edge_node, data, invcov_data=None, metric='m')
             ID of the intersection where a decision is being made
     edge_node: dict
             keys are TNIDs, values are lists of associated TLIDs
-    edges_data: pd DataFrame
+    data: pd DataFrame
             each row is a road edge (street segment), with TLID as its index,
             remaining columns are random numbers representing demographic data.
+            For example, the output of generate_synthetic_data()
     invcov_data: np array, optional
             inverse covariance of the array of data returned in edges_data,
             used to calculate Mahalanobis distance
@@ -204,7 +217,9 @@ def find_most_similar(tlid, node, edge_node, data, invcov_data=None, metric='m')
     next_tlid: str
             ID of the most similar street segment sharing the same node
     """
-    print("Currently at node/TLID: ", node, tlid)
+    print("\n\nCurrently at node: ", node)
+    print("Currently at edge: ", tlid)
+    print("Contiguous edges: ", edge_node[node])
     min_dist = np.inf
     next_tlid = None
     for contig_tlid in edge_node[node]:
@@ -215,6 +230,7 @@ def find_most_similar(tlid, node, edge_node, data, invcov_data=None, metric='m')
             dist = mahal_distance(tlid_1=tlid, tlid_2=contig_tlid,
                                 data=data,
                                 invcov_data=invcov_data)
+        print("Distance: ", dist)
         if dist < min_dist:
             dist = min_dist
             next_tlid = contig_tlid
@@ -254,41 +270,45 @@ def walk_network(edge_node, nodes_from_edges, data, invcov_data = None, metric='
     cur_node = random.choice(list(edge_node))
     cur_tlid = random.choice(list(edge_node[cur_node]))
 
-    print("Length of data: ", data.shape[0])
-    print("Length of TLID dictionary: ", len(nodes_from_edges))
 
-    print("Random starting node/edge: ", cur_node, cur_tlid)
-    print(edge_node[cur_node])
+    #print("Random starting node/edge: ", cur_node, cur_tlid)
+    #print(edge_node[cur_node])
 
     only_vars = data.drop('FULLNAME', axis=1)
 
     # Perform find_most_similar, remove each visited node-TLID from possibilities
     while(len(nodes_from_edges) > 0):
-        # Remove current position from the set of possibilities
+        #print("Length of data: ", only_vars.shape[0])
+        #print("Length of TLID dictionary: ", len(nodes_from_edges))
+
+        # Remove current edge from the set of possibilities
         edge_node[cur_node].remove(cur_tlid)
-        # Find most similar TLID sharing the current node
-        next_tlid = find_most_similar(tlid=cur_tlid, node=cur_node,
-                                    edge_node=edge_node,
-                                    data=only_vars,
-                                    invcov_data=invcov_data,
-                                    metric=metric)
-        # Re-pick a random start in case of an island
-        if next_tlid==None:
+
+        if len(edge_node[cur_node]) == 0:
+            edge_node.pop(cur_node, None)
+            print("No similar contiguous roads -- chosing next step randomly")
+            # Re-pick a random start in case of an island
             next_node = random.choice(list(edge_node))
             next_tlid = random.choice(list(edge_node[next_node]))
 
         else:
+            # Find most similar TLID sharing the current node
+            next_tlid = find_most_similar(tlid=cur_tlid, node=cur_node,
+                                        edge_node=edge_node,
+                                        data=only_vars,
+                                        invcov_data=invcov_data,
+                                        metric=metric)
+
             # Don't end up at the same node when moving to the next edge
             nodes_from_edges[next_tlid].remove(cur_node)
-            if len(nodes_from_edges[next_tlid]) != 1:
-                print("No more nodes from this edge!")
+            if len(nodes_from_edges[next_tlid]) == 0:
+                print("Error: No more nodes from this edge!")
+
             # Compare name and block of current TLID and next TLID to characterize move
             if data.loc[cur_tlid, 'FULLNAME'] == data.loc[next_tlid, 'FULLNAME']:
                 nodes.update({cur_node:{'street': 1}})
-                #nodes[cur_node]['street'] = 1
             else:
                 nodes.update({cur_node:{'street': 0}})
-                #nodes[cur_node]['street'] = 0
             ## TODO: Merge BLKID to road network for public data before including this
             '''
             if data.loc[cur_tlid, 'BLKID'] == data.loc[next_tlid, 'BLKID']:
@@ -296,33 +316,32 @@ def walk_network(edge_node, nodes_from_edges, data, invcov_data = None, metric='
             else:
                 nodes[cur_node]['block'] = 0
             '''
-        # Step to the next position, remove empty nodes
-        if len(edge_node[cur_node]) == 0:
-            edge_node.pop(cur_node, None)
 
+        # Step to the next position
         print("Next TLID: ", next_tlid)
         print("Next node: ", nodes_from_edges[next_tlid][0])
 
-        # Assign the next node
+        # Move to the next TLID-node combo, and remove TLID from the set
         next_node = nodes_from_edges[next_tlid][0]
         nodes_from_edges.pop(cur_tlid, None)
 
         cur_tlid = next_tlid
+        cur_node=next_node
 
     return nodes
 
 if __name__ == "__main__":
-    roads = load_roads('../data/tiger_csv/08031_edges.csv')
-    edge_node, tlid_dict = create_node_dict(create_edge_node_df(roads))
-    data, invcov = generate_synthetic_data(roads)
-    print(data.head())
-    data.to_csv("../data/synthetic/08031_synthetic.csv")
+    county_roads = load_roads('../data/tiger_csv/08031_edges.csv')
+    county_edge_node_df = create_edge_node_df(county_roads)
+    county_edge_node, tlid_dict = create_node_dict(county_edge_node_df)
+    dem_data, dem_invcov = generate_synthetic_data(county_roads)
+    dem_data.to_csv("../data/synthetic/08031_synthetic.csv")
 
-    nodes = walk_network(edge_node=edge_node,
+    nodes = walk_network(edge_node=county_edge_node,
                         nodes_from_edges=tlid_dict,
-                        data=data,
-                        invcov_data=invcov,
-                        metric='m')
+                        data=dem_data,
+                        invcov_data=dem_invcov,
+                        metric='e')
 
     outfile_name = "../results/walk_results/" + county_code + "_walk.csv"
 

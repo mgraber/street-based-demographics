@@ -1,4 +1,5 @@
 import random
+import csv
 import numpy as np
 import pandas as pd
 import scipy as sp
@@ -87,7 +88,7 @@ def create_node_dict(edge_node_df):
     edge_node: dict
             keys are TNIDs, values are lists of associated TLIDs
     """
-    edge_node = edge_node_df.groupby('TNID')['TLID'].apply(list).to_dict()
+    edge_node = edge_node_df.groupby('TNID')['TLID'].apply(list).apply(set).apply(list).to_dict()
     nodes_from_edges = edge_node_df.groupby('TLID')['TNID'].apply(list).to_dict()
     return edge_node, nodes_from_edges
 
@@ -217,20 +218,20 @@ def find_most_similar(tlid, node, edge_node, data, invcov_data=None, metric='m')
     next_tlid: str
             ID of the most similar street segment sharing the same node
     """
-    print("\n\nCurrently at node: ", node)
-    print("Currently at edge: ", tlid)
-    print("Contiguous edges: ", edge_node[node])
+    #print("Currently at node: ", node)
+    #print("Currently at edge: ", tlid)
+    #print("Contiguous edges: ", edge_node[node])
     min_dist = np.inf
     next_tlid = None
     for contig_tlid in edge_node[node]:
-        print("Possible next TLID: ", contig_tlid)
+        #print("Possible next TLID: ", contig_tlid)
         if metric=='e':
             dist = euc_distance(tlid_1=tlid, tlid_2=contig_tlid, data=data)
         elif metric=='m':
             dist = mahal_distance(tlid_1=tlid, tlid_2=contig_tlid,
                                 data=data,
                                 invcov_data=invcov_data)
-        print("Distance: ", dist)
+        #print("Distance: ", dist)
         if dist < min_dist:
             dist = min_dist
             next_tlid = contig_tlid
@@ -265,31 +266,49 @@ def walk_network(edge_node, nodes_from_edges, data, invcov_data = None, metric='
             same-block moves
     """
     nodes = {}
+    num_paths = 1
 
     # Randomly select a node-TLID pair as the start of the walk_network
     cur_node = random.choice(list(edge_node))
     cur_tlid = random.choice(list(edge_node[cur_node]))
 
-
-    #print("Random starting node/edge: ", cur_node, cur_tlid)
-    #print(edge_node[cur_node])
-
     only_vars = data.drop('FULLNAME', axis=1)
 
     # Perform find_most_similar, remove each visited node-TLID from possibilities
     while(len(nodes_from_edges) > 0):
-        #print("Length of data: ", only_vars.shape[0])
-        #print("Length of TLID dictionary: ", len(nodes_from_edges))
 
-        # Remove current edge from the set of possibilities
-        edge_node[cur_node].remove(cur_tlid)
+        # Remove visited edge
+        #print("Removing visited TLID: ", cur_tlid)
+        nodes_from_edges.pop(cur_tlid, None)
+
+        # Remove TLID options for cur_node if they've already been visited
+
+        edge_node[cur_node] = [tlid for tlid in edge_node[cur_node] if tlid in nodes_from_edges.keys()]
 
         if len(edge_node[cur_node]) == 0:
-            edge_node.pop(cur_node, None)
-            print("No similar contiguous roads -- chosing next step randomly")
-            # Re-pick a random start in case of an island
+            # This case occurs if there are no possible moves from the current node
+            edge_node.pop(cur_node, "Could not remove empty node key")
+            #print("No possible contiguous roads -- chosing next step randomly...")
+
+            # Re-pick a random start, continue picking until there are possible moves
             next_node = random.choice(list(edge_node))
+            edge_node[next_node] = [tlid for tlid in edge_node[next_node] if tlid in nodes_from_edges.keys()]
+
+            while len(edge_node[next_node]) == 0:
+                edge_node.pop(next_node, "Could not remove empty node key")
+                if len(edge_node) == 0:
+                    print("Total nodes evaluated: ", len(nodes))
+                    print("Number of discrete paths: ", str(num_paths))
+                    return nodes
+                #print("No possible contiguous roads -- chosing next step randomly...")
+                next_node = random.choice(list(edge_node))
+                # Remove TLID options for next_node if they've already been visited
+                edge_node[next_node] = [tlid for tlid in edge_node[next_node] if tlid in nodes_from_edges.keys()]
+
+            #print(edge_node[next_node])
             next_tlid = random.choice(list(edge_node[next_node]))
+            #print(next_tlid)
+            num_paths += 1
 
         else:
             # Find most similar TLID sharing the current node
@@ -302,11 +321,13 @@ def walk_network(edge_node, nodes_from_edges, data, invcov_data = None, metric='
             # Don't end up at the same node when moving to the next edge
             nodes_from_edges[next_tlid].remove(cur_node)
             if len(nodes_from_edges[next_tlid]) == 0:
-                print("Error: No more nodes from this edge!")
+                # This should never execute
+                print("Error: Both to- and from-nodes for this edge have been visited")
 
             # Compare name and block of current TLID and next TLID to characterize move
             if data.loc[cur_tlid, 'FULLNAME'] == data.loc[next_tlid, 'FULLNAME']:
                 nodes.update({cur_node:{'street': 1}})
+                #print("Same street move")
             else:
                 nodes.update({cur_node:{'street': 0}})
             ## TODO: Merge BLKID to road network for public data before including this
@@ -318,24 +339,29 @@ def walk_network(edge_node, nodes_from_edges, data, invcov_data = None, metric='
             '''
 
         # Step to the next position
-        print("Next TLID: ", next_tlid)
-        print("Next node: ", nodes_from_edges[next_tlid][0])
+        #print("Next TLID: ", next_tlid)
+        if next_tlid not in nodes_from_edges.keys():
+            print("Next TLID already visited")
+        #print("Next node: ", nodes_from_edges[next_tlid][0])
 
-        # Move to the next TLID-node combo, and remove TLID from the set
+        # Move to the next TLID-node combo
         next_node = nodes_from_edges[next_tlid][0]
-        nodes_from_edges.pop(cur_tlid, None)
+        #print("TLIDs left to visit: ", len(nodes_from_edges))
 
         cur_tlid = next_tlid
-        cur_node=next_node
+        cur_node = next_node
 
+    print("Total nodes evaluated: ", len(nodes))
+    print("Number of discrete paths: ", str(num_paths))
     return nodes
 
-if __name__ == "__main__":
-    county_roads = load_roads('../data/tiger_csv/08031_edges.csv')
+def walk_county(county_code = '08031'):
+    county_roads = load_roads('../data/tiger_csv/' + county_code + '_edges.csv')
     county_edge_node_df = create_edge_node_df(county_roads)
     county_edge_node, tlid_dict = create_node_dict(county_edge_node_df)
+    ## TODO: Replace this step with loading demographic data
     dem_data, dem_invcov = generate_synthetic_data(county_roads)
-    dem_data.to_csv("../data/synthetic/08031_synthetic.csv")
+    dem_data.to_csv("../data/synthetic/" + county_code + "_synthetic.csv")
 
     nodes = walk_network(edge_node=county_edge_node,
                         nodes_from_edges=tlid_dict,
@@ -350,3 +376,10 @@ if __name__ == "__main__":
         writer.writerow(["TNID", "Same-name"])
         for row in nodes.items():
             writer.writerow(row)
+
+
+if __name__ == "__main__":
+    walk_county(county_code = '08031')
+    walk_county(county_code = '08031')
+    walk_county(county_code = '08031')
+    walk_county(county_code = '08031')

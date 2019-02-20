@@ -54,7 +54,7 @@ def find_global_p_val(data, iterations=10):
 
     # Aggregate "data"
     # TODO: Change this aggregation to account for real data (TLID-BLKID differences)
-    aggs = data[['TLID','BLKID','A', 'B', 'C', 'D', 'E']].groupby(['TLID']).mean()
+    aggs = data[['TLID','A', 'B', 'C', 'D', 'E']].groupby(['TLID']).mean()
     data_sims = permute_houses(dem_data=data, iterations=iterations)
     var_list = ['A', 'B', 'C', 'D', 'E']
 
@@ -68,7 +68,7 @@ def find_global_p_val(data, iterations=10):
 
 
 
-    p_vals = [((means[abs(aggs[var].mean()) < means[var].abs()].shape[0])/iterations) for var in var_list]
+    p_vals = {var:((means[abs(aggs[var].mean()) < means[var].abs()].shape[0])/iterations) for var in var_list}
     print(p_vals)
     return p_vals
 

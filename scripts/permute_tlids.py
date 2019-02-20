@@ -2,7 +2,7 @@ import random
 import numpy as np
 import pandas as pd
 
-def permute_houses(dem_data, seed=1234):
+def permute_houses(dem_data, iterations = 10):
     """
     Randomly permute houses within each block. This allows for
     an empirical distribution to test the hypothesis that data are
@@ -23,10 +23,54 @@ def permute_houses(dem_data, seed=1234):
             BLKIDs. Each row represents a MAFID-indexed household. New column
             with shuffled TLIDs, called 'TLID_permuted_{iteration}'
     """
-    random.seed(seed)
-    dem_data['TLID_permuted_'+str(seed)] = dem_data.groupby('BLKID')['TLID'].transform(np.random.permutation)
+    for i in range(iterations):
+        random.seed(25*i)
+        dem_data['TLID_permuted_'+str(i)] = dem_data.groupby('BLKID')['TLID'].transform(np.random.permutation)
     return dem_data
 
+def find_global_p_val(data, iterations=10):
+    """
+    Randomly shuffles TLID assignments within each block,
+    reassigning them to each MAFID. Aggregates both the true data
+    and the shuffled data, and uses random shuffle to calculate
+    empirical p-values for the null hypothesis of random distribution
+    within blocks.
+
+    Parameters
+    ----------
+    data: pd DataFrame
+            demographic (or synthetic) data with columns for TLIDs and
+            BLKIDs. Each row represents a MAFID-indexed household.
+    iterations: int
+            number of times to shuffle households and reaggregate
+
+    Returns
+    -------
+    aggs_avg: pd DataFrame
+            each row is a TLID-BLKID pair, first columns are the differences in
+            aggregation for each variable, remaining columns are empirical p-values
+            averaged over all iterations
+    """
+
+    # Aggregate "data"
+    # TODO: Change this aggregation to account for real data (TLID-BLKID differences)
+    aggs = data[['TLID','BLKID','A', 'B', 'C', 'D', 'E']].groupby(['TLID']).mean()
+    data_sims = permute_houses(dem_data=data, iterations=iterations)
+    var_list = ['A', 'B', 'C', 'D', 'E']
+
+    means_list = []
+    for i in range(iterations):
+        synth_aggs = data_sims[['TLID_permuted_'+str(i),'A', 'B', 'C', 'D', 'E']].groupby(['TLID_permuted_'+str(i)]).mean()
+        means_list.append({var:synth_aggs[var].mean() for var in var_list})
+    means = pd.DataFrame(means_list)
+    print(means.abs().head(20))
+    print(aggs.mean().abs())
+
+
+
+    p_vals = [((means[abs(aggs[var].mean()) < means[var].abs()].shape[0])/iterations) for var in var_list]
+    print(p_vals)
+    return p_vals
 
 def average_pvals(pval_df, iterations=10):
     """
@@ -133,14 +177,13 @@ if __name__ == "__main__":
     merged_xwalk.rename(columns={'TLID_match':'TLID'}, inplace=True)
 
     # Create random data and merge it to address-xwalk table
+    ## TODO: Fix so column names aren't hard coded
     column_names = ['A', 'B', 'C', 'D', 'E']
     rand_data = pd.DataFrame(np.random.randn(merged_xwalk.shape[0], 5), columns=column_names)
     rand_data.loc[:,'MAFID'] = merged_xwalk['MAFID']
     synth_dem_data = pd.merge(merged_xwalk, rand_data, on='MAFID')
 
     print("\n\nSynthetic demographic data:")
-    print(synth_dem_data.head())
+    print(synth_dem_data.head(20))
 
-    pvals = find_p_vals(synth_dem_data, iterations=3)
-    print("\n\nP-values:")
-    print(pvals.head())
+    pvals = find_global_p_val(synth_dem_data, iterations=30)

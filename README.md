@@ -33,6 +33,12 @@ The code in this repository is largely built around basic table joins, which rel
 Spatial operations, such as converting latitude and longitude strings to WKT spatial objects, relies on [`shapely`](https://pypi.org/project/Shapely/).
 The script `match_tlid_geo.py` relies on [`geopandas`](http://geopandas.org), a hybrid of shapely and pandas. Note that this script is not strictly necessary for the completion of the workflow, as `match_tlid.py` presents a more-efficient alternative.
 
+### Workflow summary
+1. Run `tiger_xwalk.py`
+2. Run `match_tlid.py` (or `match_tlid_geo.py`)
+3. Run `permute_tlids.py`
+Final output: point-level data with links to TLIDs (official Census street segment identifiers) in CSV form, and a CSV of empirical p-values describing whether average street-level data aggregations differ from block-level data aggregations
+
 ### Step one: Finding possible street segments
 Given that calculating every possible pair-wise distance between points and street segments is not a feasible approach, the most obvious way of improving efficiency is to first limit the number of possible street segments for each point.
 Think about a typical, rectangular city block with a house on it. Simply based on the block ID associated with that house (let's call it block 1), we know that there are only four possible streets on which the house could be addressed. For convenience, let's call these streets North, South, East, and West. Luckily, we also have the full address of the street: 1234 North St. In our simplistic scenario, we can link the house to a segment of North Street that borders block 1. If there is only one segment matching these criteria, then we're done! No spatial calculations necessary.
@@ -48,3 +54,13 @@ In Denver county, simply running `tiger_xwalk.py` matches almost 80% of all addr
 The first method available is to use common spatial packages and built-in tools. This primarily involves opening our data into `geopandas` geoDataFrames. In the previous section, our data contained a column called 'geometry' containing the WKT for points, lines, or polygons. Loading data into pandas keeps the columns as is. On the other hand, `geopandas` loads a table while creating `shapely` geometric objects behind the scenes. This gives us access to all of the `shapely` geometric manipulation functions, including a useful one called `distance()`. This approach is implemented in `match_tlid_geo.py`.
 
 A more efficient approach is implemented in `match_tlid.py`, which relies on `match_tlid_utils.py`. The modified workflow is essentially the following: data are loaded, merged with the crosswalk created by `tiger_xwalk.py` (giving lists of possible TLIDs), then converted to dictionaries. Minimum distances are calculated using a basic euclidean distance, which walks along all coordinates of all possible line segments and returns the TLID associated with minimum distance vertex. A dictionary of results is exported as a CSV.
+
+### Analysis of results: Hypothesis testing
+
+The utility of the scripts in this repository assumes we have some reason to group point-based data by street segments, rather than by blocks or other polygons. The final script, `permute_tlids.py` allows us to test whether street-based groupings actually differ from more conventional (and convenient) areal units.
+
+`permute_tlids.py` performs a hypothesis test. The null hypothesis is that point-level data are distributed randomly (spatially-speaking) within each block. The script generates an empirical distribution for this hypothesis by randomly shuffling TLID assignments of points within each block for several iterations. Using this disribution, the script finds empirical p-values. Each p-value represents the following:
+
+The probability of observing a an average difference between street-aggregations and associated block-aggregations more extreme than the "real" difference, given a null hypothesis that data within each block is spatially random (i.e. there is no pattern in the location of point data, holding blocks constant).
+
+`permute_tlids.py` includes a step that generates random point-level "data" -- values associated with each of the Denver address points. "Real" implementations would use point-level data that contains more variables than simple location -- such as point-level demographic data available in restricted Census data centers.

@@ -12,13 +12,30 @@ warnings.filterwarnings('ignore')
 """
 This script creates a crosswalk between block-street combinations and
 a list of all possible TLIDs.
-
 """
 
 def load_tiger(edge_path, face_path):
     """
     Loads already downloaded TIGER data from paths, keeps relevant attributes,
     and sets index for face data.
+
+    Parameters
+    ----------
+    edge_path: str
+            relative directory path to a shapefile
+            of TIGER edges, downloadable here
+            https://www.census.gov/geo/maps-data/data/tiger.html
+    face_path: str
+            relative directory path to a shapefile
+            of TIGER faces, downloadable here
+            https://www.census.gov/geo/maps-data/data/tiger.html
+
+    Returns
+    -------
+    edge: gpd DataFrame
+            edge data from TIGER
+    face: pd DataFrame
+            face data from TIGER
     """
     # Import TIGER edge data
     edges = gpd.read_file(edge_path)
@@ -34,7 +51,26 @@ def load_tiger(edge_path, face_path):
 def load_tiger_csv(edge_path, face_path):
     """
     Loads csv-converted TIGER data from paths, keeps relevant attributes,
-    and sets index for face data.
+    and sets index for face data. The only difference between this function
+    and load_tiger is that input TIGER files are expected to be in CSV form.
+
+    Parameters
+    ----------
+    edge_path: str
+            relative directory path to a shapefile
+            of TIGER edges, downloadable here
+            https://www.census.gov/geo/maps-data/data/tiger.html
+    face_path: str
+            relative directory path to a shapefile
+            of TIGER faces, downloadable here
+            https://www.census.gov/geo/maps-data/data/tiger.html
+
+    Returns
+    -------
+    edge: gpd DataFrame
+            edge data from TIGER files
+    face: pd DataFrame
+            face data from TIGER files
     """
     # Import TIGER edge data
     edges = pd.read_csv(edge_path, converters={'TFIDL': lambda x: x.split('.')[0],
@@ -245,8 +281,10 @@ def find_possible_tlid(tiger_name, block_id, face, edge_face):
 
     # This check assigns all block TLIDs as possible for those that fail the string match
     if (tiger_name == None) or (tiger_name == '') or (tiger_name == 'nan'):
-        print('Empty name found')
+        print("Empty name found")
+        print("Number of possible faces: ", len(possible_faces))
         possible_edge_faces = edge_face.loc[(edge_face['TFID'].isin(possible_faces))]
+        print(possible_edge_faces)
     else:
         possible_edge_faces = edge_face.loc[(edge_face['TFID'].isin(possible_faces))
                                 & (edge_face['FULLNAME'] == tiger_name)]
@@ -278,6 +316,8 @@ def process_county(county_code = '08031'):
     if os.path.exists("../results/names_blocks_xwalk/" + county_code + "_address_names.csv"):
         county_add_names = pd.read_csv("../results/names_blocks_xwalk/" + county_code + "_address_names.csv", converters={'BLKID': lambda x: str(x)})
         county_add_names = county_add_names.fillna('')
+        print("\nLoaded pre-built name match: ")
+        print(county_add_names.head(30))
     else:
         if not os.path.exists("../results/names_blocks_xwalk/"):
             os.mkdir("../results/names_blocks_xwalk/")

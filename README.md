@@ -23,21 +23,25 @@ Geocoding is expensive (via available APIs) and inefficient for very large datab
 
 ## Workflow overview
 
-### Inputs:
-* TIGER edge files and block relationship files for an area of interest. Edges are any linear features included in the Census Bureau's official map. These might be roads, walkways, or ditches. An edge file and block file for Denver county are included in the data directory. TIGER files are downloadable [here](https://www.census.gov/geo/maps-data/data/tiger.html). Note that the included TIGER files have been converted from shapefiles to CSV's with a WKT geometry column (by exporting a geopandas object to CSV) for better portability. This has the added benefit of allowing us to avoid creating spatial objects whenever possible.
-
-* Point level data of interest, where each record has a named street and census block identifier (for example, household-level demographic survey data, such as what is available through the Census Bureau's Federal Statistical Research Data Centers). Due to privacy issues, obtaining example point-level data is often challenging. For the sake of demonstration, this repository includes a 10% sample of address points for Denver county, available through [Denver Open Data](https://www.denvergov.org/opendata/dataset/city-and-county-of-denver-addresses). While these data do not have any associated demographic fields, they have all of the necessary ingredients for linking point data to street segments.
-
 ### Necessary libraries:
 The code in this repository is largely built around basic table joins, which rely on [`pandas`](http://pandas.pydata.org).
 Spatial operations, such as converting latitude and longitude strings to WKT spatial objects, relies on [`shapely`](https://pypi.org/project/Shapely/).
 The script `match_tlid_geo.py` relies on [`geopandas`](http://geopandas.org), a hybrid of shapely and pandas. Note that this script is not strictly necessary for the completion of the workflow, as `match_tlid.py` presents a more-efficient alternative.
 
 ### Workflow summary
-1. Run `tiger_xwalk.py`
-2. Run `match_tlid.py` (or `match_tlid_geo.py`)
-3. Run `permute_tlids.py`
+In order to run the scripts included in this repo, you must first acquire: TIGER edges file, TIGER blocks file, and some kind of point-level data with attributes for both census blocks and street addresses. For a more detailed description of inputs, see the next section.
+
+1. If needed, convert TIGER shapefiles to CSVs by running `make_csv.py`
+2. Run `tiger_xwalk.py`, replacing the county_code in the main function with the FIPs code of the county of interest.
+3. Run `match_tlid.py` (or `match_tlid_geo.py`), again changing the county_code parameter to the desired FIPs code.
+4. Run `permute_tlids.py` (optional)
+
 Final output: point-level data with links to TLIDs (official Census street segment identifiers) in CSV form, and a CSV of empirical p-values describing whether average street-level data aggregations differ from block-level data aggregations
+
+### Inputs:
+* TIGER edge files and block relationship files for an area of interest. Edges are any linear features included in the Census Bureau's official map. These might be roads, walkways, or ditches. An edge file and block file for Denver county are included in the data directory. TIGER files are downloadable [here](https://www.census.gov/geo/maps-data/data/tiger.html). Note that the included TIGER files have been converted from shapefiles to CSV's with a WKT geometry column (by exporting a geopandas object to CSV) for better portability. This has the added benefit of allowing us to avoid creating spatial objects whenever possible.
+
+* Point level data of interest, where each record has a named street and census block identifier (for example, household-level demographic survey data, such as what is available through the Census Bureau's Federal Statistical Research Data Centers). Due to privacy issues, obtaining example point-level data is often challenging. For the sake of demonstration, this repository includes a 10% sample of address points for Denver county, available through [Denver Open Data](https://www.denvergov.org/opendata/dataset/city-and-county-of-denver-addresses). While these data do not have any associated demographic fields, they have all of the necessary ingredients for linking point data to street segments.
 
 ### Step one: Finding possible street segments
 Given that calculating every possible pair-wise distance between points and street segments is not a feasible approach, the most obvious way of improving efficiency is to first limit the number of possible street segments for each point.

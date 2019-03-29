@@ -55,20 +55,22 @@ def find_global_p_val(data, iterations=10):
     # Aggregate "data"
     # TODO: Change this aggregation to account for real data (TLID-BLKID differences)
     aggs = data[['TLID','A', 'B', 'C', 'D', 'E']].groupby(['TLID']).mean()
+    blk_aggs = data[['TLID','BLKID','A', 'B', 'C', 'D', 'E']].groupby(['BLKID']).mean()
+    tlid_blk_aggs = data[['TLID','BLKID','A', 'B', 'C', 'D', 'E']].groupby(['TLID','BLKID']).mean().reset_index()
+    print("TLID-BLKID aggs: \n", tlid_blk_aggs.head())
+
     data_sims = permute_houses(dem_data=data, iterations=iterations)
     var_list = ['A', 'B', 'C', 'D', 'E']
 
     means_list = []
     for i in range(iterations):
-        synth_aggs = data_sims[['TLID_permuted_'+str(i),'A', 'B', 'C', 'D', 'E']].groupby(['TLID_permuted_'+str(i)]).mean()
-        means_list.append({var:synth_aggs[var].mean() for var in var_list})
+        synth_aggs = data_sims[['TLID_permuted_'+str(i),'BLKID','A', 'B', 'C', 'D', 'E']].groupby(['TLID_permuted_'+str(i), 'BLKID']).mean()
+        means_list.append({var:synth_aggs[var].abs().mean() for var in var_list})
     means = pd.DataFrame(means_list)
     print(means.abs().head(20))
-    print(aggs.mean().abs())
+    print(tlid_blk_aggs.mean().abs())
 
-
-
-    p_vals = {var:((means[abs(aggs[var].mean()) < means[var].abs()].shape[0])/iterations) for var in var_list}
+    p_vals = {var:((means[tlid_blk_aggs[var].abs().mean() < means[var]].shape[0])/iterations) for var in var_list}
     print(p_vals)
     return p_vals
 
@@ -130,16 +132,18 @@ def find_p_vals(data, iterations=10):
     # TODO: Change this aggregation to account for real data (TLID-BLKID differences)
     aggs = data[['TLID','BLKID','A', 'B', 'C', 'D', 'E']].groupby(['TLID']).mean()
     blk_aggs = data[['TLID','BLKID','A', 'B', 'C', 'D', 'E']].groupby(['BLKID']).mean()
+    tlid_blk_aggs = data[['TLID','BLKID','A', 'B', 'C', 'D', 'E']].groupby(['TLID','BLKID']).mean()
+    print("TLID-BLKID aggs: \n", tlid_blk_aggs.head())
 
     for i in range(iterations):
         shuffled_data = permute_houses(data, seed=i)
-        synth_aggs = shuffled_data[['TLID_permuted_'+str(i),'A', 'B', 'C', 'D', 'E']].groupby(['TLID_permuted_'+str(i)]).mean()
+        synth_aggs = shuffled_data[['TLID_permuted_'+str(i),'A', 'B', 'C', 'D', 'E']].groupby(['TLID_permuted_'+str(i), 'BLKID']).mean()
         for col in ['A', 'B', 'C', 'D', 'E']:
             #print(synth_aggs[synth_aggs.abs()[col] > aggs.abs()[col]].shape[0])
             aggs.loc[:, col+'_p_'+str(i)] = aggs.apply(lambda row: rate_more_extreme(row[col], synth_aggs[col]), axis=1)
             #aggs.loc[:, col+'_p_'+str(i)] = synth_aggs[synth_aggs.abs()[col] > aggs.abs()[col]].shape[0] / synth_aggs.shape[0]
 
-    aggs_avg = average_pvals(pval_df=aggs, iterations=iterations)
+    aggs_avg = average_pvals(pval_df=tlid_blk_aggs, iterations=iterations)
     return aggs_avg
 
 

@@ -1,5 +1,11 @@
 # Street Based Demographics
 
+This repository contains tools for linking point-level data to a street network. These explore the extent to which demographic sorting in urban areas follows streets, rather than the blocks used as the US Census bureau's smallest aggregation unit.
+
+For a less-technical explanation of why this matters, please refer to notebooks/blog.ipynb
+
+A longer report demonstrating these methods implemented with Census microdata (restricted point-level Census data),
+please see notebooks/final_report.ipynb
 
 ## (Almost) Geoless Geocoding: Linking blocks to streets via the Census Relationship files.
 
@@ -19,7 +25,7 @@ However, producing street-wise summaries from the same data would be difficult. 
 The code in the repository enables one to map Block-Address combinations to individual census street geometries.  It relies on the [Block Relationship Files](https://www2.census.gov/geo/pdfs/maps-data/data/tiger/tgrshp2014/TGRSHP2014_TechDoc_Ch4.pdf) These scripts enable one to make street-wise maps of program participation, crime, any event/record mapped to a named street and census block.
 
 ## But this is stupid, why not just geocode the addresses?
-Geocoding is expensive (via available APIs) and inefficient for very large databases (think hundreds of millions of points).  The methods here enable on to create streetwise maps of large collections of point data.
+[Geocoding](https://en.wikipedia.org/wiki/Geocoding) is expensive (via available APIs) and inefficient for very large databases (think hundreds of millions of points).  The methods here enable on to create streetwise maps of large collections of point data.
 
 ## Workflow overview
 
@@ -31,15 +37,21 @@ The script `match_tlid_geo.py` relies on [`geopandas`](http://geopandas.org), a 
 ### Workflow summary
 In order to run the scripts included in this repo, you must first acquire: TIGER edges file, TIGER blocks file, and some kind of point-level data with attributes for both census blocks and street addresses. For a more detailed description of inputs, see the next section.
 
+This workflow processes a single county at a time. Counties are identified using five-digit FIPs codes,
+where Denver County is the default. Denver County's FIPs code is 08031.
+A list of all county FIPs codes is [here](https://www.nrcs.usda.gov/wps/portal/nrcs/detail/national/home/?cid=nrcs143_013697).
+Running this workflow for other counties requires passing a different FIPs code into
+the county_code arguments.
+
 1. If needed, convert TIGER shapefiles to CSVs by running `make_csv.py`
 2. Run `tiger_xwalk.py`, replacing the county_code in the main function with the FIPs code of the county of interest.
-3. Run `match_tlid.py` (or `match_tlid_geo.py`), again changing the county_code parameter to the desired FIPs code.
+3. Run `match_tlid.py`, again changing the county_code parameter to the desired FIPs code.
 4. Run `permute_tlids.py` (optional)
 
 Final output: point-level data with links to TLIDs (official Census street segment identifiers) in CSV form, and a CSV of empirical p-values describing whether average street-level data aggregations differ from block-level data aggregations
 
 ### Inputs:
-* TIGER edge files and block relationship files for an area of interest. Edges are any linear features included in the Census Bureau's official map. These might be roads, walkways, or ditches. An edge file and block file for Denver county are included in the data directory. TIGER files are downloadable [here](https://www.census.gov/geo/maps-data/data/tiger.html). Note that the included TIGER files have been converted from shapefiles to CSV's with a WKT geometry column (by exporting a geopandas object to CSV) for better portability. This has the added benefit of allowing us to avoid creating spatial objects whenever possible.
+* TIGER edge files and block relationship files for an area of interest. Edges are any linear features included in the Census Bureau's official map. These might be roads, walkways, or ditches. An edge file and block file for Denver county are included in the data directory. TIGER files are downloadable [here](https://www.census.gov/geo/maps-data/data/tiger.html). Note that the included TIGER files have been converted from shapefiles to CSV's with a [WKT geometry column](https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry) (by exporting a geopandas object to CSV) for better portability. This has the added benefit of allowing us to avoid creating spatial objects whenever possible.
 
 * Point level data of interest, where each record has a named street and census block identifier (for example, household-level demographic survey data, such as what is available through the Census Bureau's Federal Statistical Research Data Centers). Due to privacy issues, obtaining example point-level data is often challenging. For the sake of demonstration, this repository includes a 10% sample of address points for Denver county, available through [Denver Open Data](https://www.denvergov.org/opendata/dataset/city-and-county-of-denver-addresses). While these data do not have any associated demographic fields, they have all of the necessary ingredients for linking point data to street segments.
 
@@ -58,6 +70,8 @@ In Denver county, simply running `tiger_xwalk.py` matches almost 80% of all addr
 The first method available is to use common spatial packages and built-in tools. This primarily involves opening our data into `geopandas` geoDataFrames. In the previous section, our data contained a column called 'geometry' containing the WKT for points, lines, or polygons. Loading data into pandas keeps the columns as is. On the other hand, `geopandas` loads a table while creating `shapely` geometric objects behind the scenes. This gives us access to all of the `shapely` geometric manipulation functions, including a useful one called `distance()`. This approach is implemented in `match_tlid_geo.py`.
 
 A more efficient approach is implemented in `match_tlid.py`, which relies on `match_tlid_utils.py`. The modified workflow is essentially the following: data are loaded, merged with the crosswalk created by `tiger_xwalk.py` (giving lists of possible TLIDs), then converted to dictionaries. Minimum distances are calculated using a basic euclidean distance, which walks along all coordinates of all possible line segments and returns the TLID associated with minimum distance vertex. A dictionary of results is exported as a CSV.
+
+For diagrams that explain this approach, as well as how the efficiency differs between the two methods, see the slide deck in the presentations directory.
 
 ### Analysis of results: Hypothesis testing
 

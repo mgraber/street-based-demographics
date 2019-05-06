@@ -7,6 +7,11 @@ import folium
 import warnings
 warnings.filterwarnings('ignore')
 
+"""
+This script contains functions to support plotting tract-level data in notebooks.
+See notebooks/blog.ipynb and notebooks/final_report.ipynb for implementation.
+"""
+
 # Define filters: tract is the spatial unit, and we will request data for 8 counties
 SPATIAL_FILTERS = {'Los Angeles':{'state':'06', 'county':'037'},
                    'Denver':{'state':'08', 'county':'031'},

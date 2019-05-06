@@ -95,7 +95,7 @@ def download_merge_data(county_name='Denver', cols=[], spatial_filters=[], map_f
 
     return dem_merged
 
-def create_choropleth(dem_merged, col, title='', bins=5):
+def create_choropleth(dem_merged, col, title='', bins=5, cmap_max=1):
     """
     Creates static choropleth of demographic data, using the output of
     download_merged_data
@@ -111,6 +111,9 @@ def create_choropleth(dem_merged, col, title='', bins=5):
         Plot heading
     bins: int
         Number of bins in color-map
+    cmap_max: float
+        Number between 0 and 1 for max value of color map. 0.5 recommended for low
+        percentage variables.
 
     """
     fig, ax = plt.subplots(1, figsize=(10, 10))
@@ -121,7 +124,7 @@ def create_choropleth(dem_merged, col, title='', bins=5):
                         ax=ax,
                         legend=True,
                         cmap='Blues',
-                        vmin=0, vmax=.5)
+                        vmin=0, vmax=cmap_max)
 
     # Get rid of the axis -- the projected coordinates aren't that meaningful
     ax.axis('off')
@@ -155,7 +158,8 @@ def plot_rented(county_name='Denver'):
                                    spatial_filters=SPATIAL_FILTERS,
                                    map_filters=MAP_FILTERS)
     merged_data.loc[:,'Rented_Rate'] = merged_data.H004003 / merged_data.H004001
-    create_choropleth(merged_data, 'Rented_Rate', "Rented Household Rate by Tract\n"+county_name+" County")
+    create_choropleth(merged_data, 'Rented_Rate', "Rented Household Rate by Tract\n"+county_name+" County",
+                                cmap_max=1)
 
 def get_vacant_rates(county_name='Denver'):
     """
@@ -187,7 +191,7 @@ def plot_vacant(merged_data, county_name='Denver'):
         Kings, Queens, Bronx, and Harris
 
     """
-    create_choropleth(merged_data, 'Vacant_Rate', "Vacancy Rate by Tract\n"+county_name+" County")
+    create_choropleth(merged_data, 'Vacant_Rate', "Vacancy Rate by Tract\n"+county_name+" County", cmap_max=0.5)
 
 def hist_vacant(merged_data, county_name='Denver'):
     """

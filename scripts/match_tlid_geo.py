@@ -4,7 +4,6 @@ import geopandas as gpd
 from shapely.geometry import Point
 from shapely import ops
 from shapely import wkt
-import line_profiler
 import os
 import time
 
@@ -13,7 +12,16 @@ import warnings
 warnings.filterwarnings('ignore')
 
 """
+This script takes the possible TLID crosswalk created with tiger_xwalk.py
+and uses spatial distance calculations from shapely
+to find which option is closest to each household
+point. The final output is a table in CSV form, where each row represents an
+address. There is a column in this table called "TLID_match," which contains
+the Tiger Line Identifier for the closest street segment.
 
+The main function also includes timing of the match process. This is included to
+demonstrate how the shapely approach is less efficient than a euclidean distance
+approach, as implemented in match_tlid.py
 """
 
 def import_data(county_code = '08031', spatial = True, sample=True):
@@ -39,10 +47,14 @@ def import_data(county_code = '08031', spatial = True, sample=True):
             of edges lines
     """
     # Open address point csv
-    county_address_df = pd.read_csv("../data/addresses/" + county_code + "_addresses.csv")
-    county_address_df.set_index('MAFID')
+
     edges_df = pd.read_csv("../data/tiger_csv/" + county_code + "_edges.csv")
     edges_df.set_index(['TLID'])
+
+    print(edges_df.head())
+
+    county_address_df = pd.read_csv("../data/addresses/" + county_code + "_addresses.csv")
+    county_address_df.set_index('MAFID')
 
     if spatial:
         crs = {'init': 'epsg:4269'}

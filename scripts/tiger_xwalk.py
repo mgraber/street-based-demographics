@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import copy
 import difflib
-import line_profiler
 
 # Hide warnings from output
 import warnings
@@ -11,7 +10,20 @@ warnings.filterwarnings('ignore')
 
 """
 This script creates a crosswalk between block-street combinations and
-a list of all possible TLIDs.
+a list of all possible TLIDs. The final output is a table in CSV form.
+Each row represents one side of a block (i.e. the side of block 1 on Main St.).
+There is a column in this table named "TLIDs," which contains a list of all
+of the official Tiger Line Identifiers for the street segments along that side
+of the block.
+
+Note that street segments, as defined in the TIGER files, are pieces of street
+split by intersections with other streets (or pipelines, pedestrian paths, ditches,
+etc.). Therefore, it is possible for one side of a block to have multiple street
+segments.
+
+For more information about Census geography and the TIGER files, see this chapter:
+https://www2.census.gov/geo/pdfs/maps-data/data/tiger/tgrshp2014/TGRSHP2014_TechDoc_Ch4.pdf
+
 """
 
 def load_tiger(edge_path, face_path):

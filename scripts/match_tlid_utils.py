@@ -5,6 +5,10 @@ from shapely.geometry import LineString
 from shapely.wkt import loads
 import math
 
+"""
+This script contains functions required to run match_tlid.py
+"""
+
 def import_data(county_code = '08031', sample=True):
     """
     Imports address and TIGER data
@@ -26,6 +30,8 @@ def import_data(county_code = '08031', sample=True):
     # Open address point csv
     county_address_df = pd.read_csv("../data/addresses/" + county_code + "_addresses.csv", converters={'BLKID': lambda x: str(x)})
     print("Number of addresses in input file:", county_address_df.shape[0])
+
+    # Extract a sample for code testing and shorter run-times
     if sample:
         county_address_df = county_address_df.sample(frac=.1)
     edges_df = pd.read_csv("../data/tiger_csv/" + county_code + "_edges.csv", converters={'TLID': lambda x: str(x)})
@@ -69,8 +75,11 @@ def merge_xwalk_addresses(addresses, xwalk):
     maf_xwalk: pd or gpd DataFrame
             addresses with possible TLIDs from xwalk, index is (synthetic) MAFID or other point identifier
     """
+    # Convert street names and block IDs to strings
     addresses['MAF_NAME'], addresses['BLKID'] = addresses['MAF_NAME'].astype(str), addresses['BLKID'].astype(str)
     xwalk['MAF_NAME'], xwalk['BLKID'] = xwalk['MAF_NAME'].astype(str), xwalk['BLKID'].astype(str)
+
+    # Merge addresses with crosswalk, created with tiger_xwalk.py
     maf_xwalk = pd.merge(addresses, xwalk,  how='left', left_on=['MAF_NAME','BLKID'], right_on = ['MAF_NAME','BLKID'])
     maf_xwalk = maf_xwalk.set_index(['MAFID'])
     print("Number of addresses sucessfully merged with crosswalk:", maf_xwalk.shape[0])
@@ -109,10 +118,13 @@ def get_single_TLID_addresses(xwalk):
     address_point_TLID: dict
             results dictionary -- contains results for one-option addresses
     """
+    # Convert possible TLIDs to dictionary
     address_point_TLID_candidates = xwalk.loc[:,'TLIDs'].to_dict()
     print("Number of candidates in dictionary form: ", len(address_point_TLID_candidates))
     address_point_TLID = {}
     address_no_cand = []
+
+    # Sort addresses by number of candidates
     for id, candidates in address_point_TLID_candidates.items():
         if isinstance(candidates, list):
             if len(candidates) == 1:
@@ -142,10 +154,13 @@ def get_multi_TLID_addresses(xwalk):
             dictionary of addresses points, where key is synthetic MAFID, and values
             are another dictionary containing TLID lists, latitude, and longitude
     """
+    # Covert pd address/MAFX data to dictionary format
     address_points = xwalk.loc[:,['TLIDs', 'LATITUDE', 'LONGITUDE']].to_dict('index')
     print("Number of candidates in dictionary form, multi: ", len(address_points))
     multi_TLID_addresses = {}
     address_no_cand = []
+
+    # Sort addresses by number of candidates
     for id, data in address_points.items():
         if isinstance(data['TLIDs'], list):
             if len(data['TLIDs']) > 1:
@@ -157,6 +172,21 @@ def get_multi_TLID_addresses(xwalk):
     return multi_TLID_addresses
 
 def find_edge_geo(id, edges):
+    """
+    Gets vertices for a given edge
+
+    Parameters
+    ----------
+    id: str
+        TLID -- unique edge identifier
+    edges: pd DataFrame
+        Edges TIGER file
+    Returns
+    -------
+    geo: str
+        WKT of edge's geometry
+    """
+
     try:
         geo = edges.loc[id, 'geometry']
         return geo
@@ -198,8 +228,11 @@ def find_closest(linedict, point):
     closest_line: str
             TLID of closest line
     """
+    # Initialize minimum distance as inf
     closest_line = None
     min_dist = np.inf
+
+    # Loop through all vertices of all possible TLIDs
     for idx, aline_wkt in linedict.items():
         if isinstance(aline_wkt, str):
             aline = loads(aline_wkt)
@@ -211,6 +244,7 @@ def find_closest(linedict, point):
     if closest_line == None:
         print("No TLID match found, last distance calculated: ", vert, point, dist)
     return closest_line
+
 
 def straight_line_distance(coord1, coord2):
     """

@@ -4,6 +4,14 @@ import csv
 import os
 import match_tlid_utils as tlid_utils
 
+"""
+This script takes the possible TLID crosswalk created with tiger_xwalk.py
+and uses euclidean distance to find which option is closest to each household
+point. The final output is a table in CSV form, where each row represents an
+address. There is a column in this table called "TLID_match," which contains
+the Tiger Line Identifier for the closest street segment.
+"""
+
 def county_to_dicts(county_code='08031', sample=True):
     """
     Imports address points, crosswalk from tiger_xwalk.py, and TIGER edges data
@@ -93,6 +101,7 @@ def match_generator(multi_match, geom_list):
     """
     results_list = (match_an_address(id, attributes, geom_list) for id, attributes in multi_match.items())
     return dict(results_list)
+
 
 def match_county_tlid(county_code='08031', sample=False):
     """

@@ -2,6 +2,16 @@ import random
 import numpy as np
 import pandas as pd
 
+
+"""
+This script contains functions for testing whether demographic characteristics
+are distributed randomly within blocks. It does so by randomly shuffling households
+in each block, and comparing street-aggregated shuffled data with real aggregations.
+Using these simulations, the function find_p_vals calculates pseudo p-values
+based on an empirical (simulated) null distribution of spatial randomness
+within each block.
+"""
+
 def permute_houses(dem_data, iterations = 10):
     """
     Randomly permute houses within each block. This allows for
